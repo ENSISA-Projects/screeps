@@ -1,1 +1,1 @@
-# screeps IA project
+# screeps AI project

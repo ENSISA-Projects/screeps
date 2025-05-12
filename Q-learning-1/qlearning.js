@@ -1,8 +1,4 @@
-const key = (s, action) => {
-  if (action.type === 'WAIT') return `${s}|WAIT`;
-  // pour un spawn : on concatène rôle + body
-  return `${s}|SPAWN_${action.role}_${action.body.join('-')}`;
-};
+const key = (s, a) => `${s}|${a}`;
 
 if (!Memory.brain) {
   Memory.brain = { q: {}, alpha: 0.2, gamma: 0.9, epsilon: 0.3 };
@@ -31,6 +27,7 @@ module.exports = {
     }));
     B.q[key(s, a)] = (1 - B.alpha) * qs + B.alpha * (r + B.gamma * qsp);
 
+    /* petite décroissance d’exploration */
     B.epsilon = Math.max(0.05, B.epsilon * 0.9995);
   }
 };

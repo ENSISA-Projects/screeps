@@ -92,7 +92,6 @@ module.exports.loop = function () {
   if (!room) return;
 
   // --- FIN D’ÉPOQUE IMMÉDIATE : RCL2 atteint
-  // --- FIN D’ÉPOQUE IMMÉDIATE : RCL2 atteint
   if (room.controller.level >= 2 && !Memory.wantReset) {
     // 1) Sauvegarde Q-table
     RawMemory.setActiveSegments([SEG_ID]);

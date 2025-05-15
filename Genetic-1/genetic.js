@@ -1,11 +1,10 @@
-/*****************************************************************
- *  genetic.js – Algorithme génétique persistant (segment 2)
- *****************************************************************/
+//genetic.js – Algorithme génétique persistant
+
 const STATES  = ["000","001","010","011","100","101","110","111"];
 const ACTIONS = ["SPAWN_HARVESTER","SPAWN_UPGRADER","WAIT"];
 
-const POP_SIZE   = 10;
-const EVAL_TICKS = 1000;
+const POP_SIZE   = 6;
+const EVAL_TICKS = 6000;
 const SEG_GEN    = 2;
 
 /* ---------- Opérateurs GA ---------- */
@@ -114,7 +113,7 @@ module.exports.finishEvaluation = function (room) {
     Memory.fitnesses  = Array(POP_SIZE).fill(0);
     Memory.genIndex   = 0;
     Memory.epochCount++;
-    console.log(`🚀 [GA] Génération ${Memory.epochCount} prête`);
+    console.log(`[GA] Génération ${Memory.epochCount} prête`);
   }
 
   Memory.paused = true;      // pause manuelle

@@ -1,7 +1,5 @@
-/*****************************************************************
- *  main.js – boucle principale avec GA, pause manuelle
- *  • Boot automatique : crée un harvester tant qu’il n’y a aucun creep
- *****************************************************************/
+//main.js
+
 const genetic  = require('genetic');
 const roleHarv = require('role.harvester');
 const roleUpg  = require('role.upgrader');

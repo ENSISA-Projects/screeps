@@ -1,0 +1,5 @@
+tensorboard>=2.16
+shimmy==0.2.1
+gymnasium>=0.29
+stable-baselines3==2.3.0
+screepsapi

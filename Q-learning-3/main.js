@@ -225,7 +225,7 @@ module.exports.loop = function () {
         !creep.getActiveBodyparts(MOVE)) {
 
       creep.suicide();
-      if (!EVAL) brain.learn(currentState, action, -50, state(room), ACTIONS);
+      if (!EVAL) brain.learn(currentState, action, -100, state(room), ACTIONS);
       continue;
     }
     creepLogic.run(creep);

@@ -4,3 +4,9 @@
 /venv
 /tb
 /tb_screeps
+/deep/__pycache__
+deep/.env
+/deep/dqn_spawn
+/deep/logs
+/deep/tb
+deep/dqn_spawn.zip

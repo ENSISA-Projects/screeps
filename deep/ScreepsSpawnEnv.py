@@ -1,4 +1,6 @@
 from __future__ import annotations
+import subprocess
+import sys
 import time
 from typing import List, Dict, Tuple, Any
 
@@ -8,7 +10,7 @@ import numpy as np
 from screepsapi import API
 
 # ──────────────────────────────────────────────
-#  ACTION & STATE HELPERS (identiques au JS)
+#  ACTION & STATE HELPERS
 # ──────────────────────────────────────────────
 PARTS = ["WORK", "CARRY", "MOVE"]
 ROLES = ["harvester", "upgrader"]
@@ -34,9 +36,12 @@ ALL_BODIES = generate_exact_body_combos(PARTS, 3)
 
 # Liste des actions exactement comme dans le code JS
 ACTIONS: List[Dict[str, Any]] = [
-    {"type": "SPAWN", "role": role, "body": body} for body in ALL_BODIES for role in ROLES
+    {"type": "SPAWN", "role": role, "body": body}
+    for body in ALL_BODIES
+    for role in ROLES
 ]
 ACTIONS.append({"type": "WAIT"})  # index final
+
 
 # ──────────────────────────────────────────────
 #  ENVIRONNEMENT DQN ALIGNÉ SUR Q‑LEARNING JS
@@ -66,22 +71,26 @@ class ScreepsSpawnEnv(gym.Env):
 
         # --- espace des actions/states ---
         self.action_space = spaces.Discrete(len(ACTIONS))
-        low = np.array([0, 0, 0, 1, 0], dtype=np.float32)   # min bounds
+        low = np.array([0, 0, 0, 1, 0], dtype=np.float32)  # min bounds
         high = np.array([1, 50, 50, 8, 500], dtype=np.float32)  # RCL8 et prog simplifié
         self.observation_space = spaces.Box(low, high, dtype=np.float32)
 
         # vars internes
         self._prev_state: np.ndarray | None = None
 
-    # ── GYM API ──────────────────────────────
-    def reset(
-        self,
-        *,
-        seed: int | None = None,
-        options: Dict[str, Any] | None = None,
-    ) -> Tuple[np.ndarray, Dict]:
+    def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
-        self._inject_state_snippet()  # maj état
+
+        # ① on lance ton script externe
+        subprocess.run([sys.executable, "reset.py"], check=True)
+        #     - sys.executable = le Python en cours
+        #     - check=True ⇒ exception si le script plante
+
+        # ② (facultatif) laisser 2–3 s / ticks au serveur pour appliquer
+        self._wait_tick(3)
+
+        # ③ état initial
+        self._inject_state_snippet()
         self._wait_tick()
         obs = self._get_obs()
         self._prev_state = obs.copy()
@@ -98,11 +107,20 @@ class ScreepsSpawnEnv(gym.Env):
             role = act_obj["role"]
             body = act_obj["body"]
             parts = ",".join(body)
-            js = (
-                "const room=Object.values(Game.rooms).find(r=>r.controller && r.controller.my);"
-                "if(room){const spawn=_.find(Game.spawns,s=>!s.spawning);"
-                f"if(spawn && room.energyAvailable>=200){{spawn.spawnCreep([{parts}],`{role[0].upper()}${{Game.time}}`,{{memory:{{role:'{role}'}}}});}}"
-            )
+            js = f"""
+                    const room = Object.values(Game.rooms).find(r => r.controller && r.controller.my);
+                    if (room) {{
+                    const spawn = _.find(Game.spawns, s => !s.spawning);
+                    if (spawn && room.energyAvailable >= 200) {{
+                        spawn.spawnCreep(
+                        [{parts}],
+                        `{role[0].upper()}_${{Game.time}}`,
+                        {{ memory: {{ role: '{role}' }} }}
+                        );
+                    }}
+                    }}
+                """
+
             self._console(js)
         # WAIT → pas d'action
 

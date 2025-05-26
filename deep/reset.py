@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-import paramiko
 import time
 import sys
+from dotenv import load_dotenv
+import os, paramiko
 
-# Configuration de connexion SSH
-VPS_HOST = "*********"  # Remplacez par l'IP de votre VPS
-VPS_USER = "debian"
-VPS_PASSWORD = "******"  # Ou utilisez une clé SSH
-VPS_PORT = 22
+
+load_dotenv()
+
+VPS_HOST = os.getenv("VPS_HOST")
+VPS_PORT = int(os.getenv("VPS_SSH_PORT", "22"))
+VPS_USER = os.getenv("VPS_USER", "debian")
+VPS_PASSWORD = os.getenv("VPS_PASSWORD")
+
+if VPS_HOST is None or VPS_PASSWORD is None:
+    sys.exit("❌ VPS_HOST ou VPS_PASSWORD manquant dans .env")
+
 
 # Commandes Screeps pour reset la room W7N7
 SCREEPS_COMMANDS = [
@@ -20,24 +27,21 @@ SCREEPS_COMMANDS = [
 
 
 def connect_ssh():
-    """Etablit la connexion SSH au VPS"""
+    """Établit la connexion SSH au VPS."""
     try:
+        print(f"Connexion à {VPS_HOST}:{VPS_PORT}…")
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-        print(f"Connexion à {VPS_HOST}...")
         client.connect(
             hostname=VPS_HOST,
+            port=VPS_PORT,
             username=VPS_USER,
             password=VPS_PASSWORD,
-            port=VPS_PORT
         )
         print("✅ Connexion SSH établie")
         return client
-
     except Exception as e:
-        print(f"❌ Erreur de connexion SSH: {e}")
-        sys.exit(1)
+        sys.exit(f"❌ Erreur de connexion SSH : {e}")
 
 
 def execute_command(ssh_client, command, wait_time=2):
@@ -50,8 +54,8 @@ def execute_command(ssh_client, command, wait_time=2):
         time.sleep(wait_time)
 
         # Lire les sorties
-        output = stdout.read().decode('utf-8').strip()
-        error = stderr.read().decode('utf-8').strip()
+        output = stdout.read().decode("utf-8").strip()
+        error = stderr.read().decode("utf-8").strip()
 
         if output:
             print(f"✅ Sortie: {output}")
@@ -103,7 +107,7 @@ def main():
 
             # Lire la réponse
             if channel.recv_ready():
-                response = channel.recv(4096).decode('utf-8')
+                response = channel.recv(4096).decode("utf-8")
                 print(f"Réponse: {response.strip()}")
 
         # Quitter le CLI
@@ -133,4 +137,4 @@ def main():
 
 
 if __name__ == "__main__":
-   main()
+    main()

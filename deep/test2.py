@@ -3,6 +3,7 @@ DQN + Screeps
 """
 
 from __future__ import annotations
+import os
 import time
 from typing import Sequence, Tuple, Dict, Any
 
@@ -12,19 +13,20 @@ import numpy as np
 from screepsapi import API
 from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
-# ──────────────────────────────────────────────
-#  ENVIRONNEMENT
-# ──────────────────────────────────────────────
+# Environnement
 class ScreepsEnv(gym.Env):
     """Obs : (x, y, energy) – Actions : 0 ↑,1 →,2 ↓,3 ←,4 harvest,5 build."""
 
     metadata = {"render_modes": ["human"]}
 
-    _DIRS = {0: 1, 1: 3, 2: 5, 3: 7}          # TOP=1 RIGHT=3 BOTTOM=5 LEFT=7
+    _DIRS = {0: 1, 1: 3, 2: 5, 3: 7}  # TOP=1 RIGHT=3 BOTTOM=5 LEFT=7
 
-    # ── init ──────────────────────────────────
+    # init
     def __init__(
         self,
         user: str,
@@ -48,8 +50,8 @@ class ScreepsEnv(gym.Env):
         low, high = np.array([0, 0, 0], np.float32), np.array([49, 49, 100], np.float32)
         self.observation_space = spaces.Box(low, high, dtype=np.float32)
 
-    # ── gym API helpers ───────────────────────
-    def reset(            # type: ignore[override]
+    # gym API helpers
+    def reset(
         self,
         *,
         seed: int | None = None,
@@ -72,13 +74,13 @@ class ScreepsEnv(gym.Env):
             self._wait_tick()
 
         obs = self._get_obs()
-        return obs, {}                       # ← tuple (obs, info)
+        return obs, {}  # ← tuple (obs, info)
 
-    def step(              # type: ignore[override]
+    def step(
         self,
         action: int,
     ) -> Tuple[np.ndarray, float, bool, bool, Dict]:
-        # JS à injecter selon l’action
+        # JS injecté selon l’action
         if action in self._DIRS:
             js = (
                 f"const c=Game.creeps['{self.creep_name}'];"
@@ -102,25 +104,25 @@ class ScreepsEnv(gym.Env):
         self._wait_tick()
 
         obs = self._get_obs()
-        reward = float(obs[2])               # énergie stockée
-        terminated = reward >= 100           # objectif rempli
-        truncated = False                    # pas de coupure temps
+        reward = float(obs[2])  # énergie stockée
+        terminated = reward >= 100  # objectif rempli
+        truncated = False  # pas de coupure temps
         info: Dict[str, Any] = {}
         return obs, reward, terminated, truncated, info
 
-    # ── Rendu simple ─────────────────────────
+    # Rendu simple
     def render(self) -> None:
         if self.render_mode != "human":
             return
         x, y, e = self._get_obs()
         print(f"{self.creep_name} → ({x:.0f},{y:.0f}) | energy={e:.0f}")
 
-    # ── API bas niveau ───────────────────────
+    # API bas niveau
     def _console(self, code: str) -> None:
         self.api.console(code, shard=self.shard)
 
     def _wait_tick(self, n: float = 1) -> None:
-        time.sleep(0.1 * n)                 # ajustez 0.1 s si votre tick < 100 ms
+        time.sleep(0.1 * n)
 
     def _discover_room(self) -> str | None:
         me = self.api.me()["_id"]
@@ -143,13 +145,22 @@ class ScreepsEnv(gym.Env):
         )
 
 
-# ──────────────────────────────────────────────
-#  MAIN : DQN
-# ──────────────────────────────────────────────
+# DQN
 if __name__ == "__main__":
-    # Paramètres serveur
-    USER, PASSWORD = "quen", "1234"
-    HOST, SECURE = "51.210.254.22:21025", False
+    try:
+        VPS_HOST = os.getenv("VPS_HOST")
+        SCREEPS_PORT = os.getenv("SCREEPS_HOST", "21025")
+        if VPS_HOST and SCREEPS_PORT:
+            HOST = f"{VPS_HOST}:{SCREEPS_PORT}"
+        else:
+            raise ValueError("❌ VPS_HOST ou SCREEPS_HOST manquant dans .env")
+        USER = os.getenv("USER")
+        PASSWORD = os.getenv("PASSWORD")
+        SECURE = os.getenv("SECURE")
+    except Exception as e:
+        print(e)
+        exit(1)
+
     SHARD, SPAWN, CREEP = "shard0", "Spawn1", "MonCreep2"
 
     env = DummyVecEnv(
@@ -178,9 +189,9 @@ if __name__ == "__main__":
         train_freq=(1, "step"),
         tensorboard_log="./tb_screeps",
         verbose=1,
-        device="cpu",                 # "cuda" si dispo
+        device="cpu",  # "cuda" si dispo
     )
 
     model.learn(total_timesteps=50_000)
     model.save("dqn_screeps")
-    print("✓ Modèle sauvegardé → dqn_screeps.zip")
+    print("Modèle sauvegardé : dqn_screeps.zip")

@@ -9,28 +9,30 @@ load_dotenv()
 
 try:
     VPS_HOST = os.getenv("VPS_HOST")
-    SCREEPS_PORT = os.getenv("SCREEPS_HOST", "21025")
-    if VPS_HOST and SCREEPS_PORT:
-        HOST = f"{VPS_HOST}:{SCREEPS_PORT}"
+    SCREEPS_HOST = os.getenv("SCREEPS_HOST", "21025")
+    if VPS_HOST and SCREEPS_HOST:
+        HOST = f"{VPS_HOST}:{SCREEPS_HOST}"
     else:
         raise ValueError("❌ VPS_HOST ou SCREEPS_HOST manquant dans .env")
-    USER = os.getenv("USER")
+
+    USERNAME = os.getenv("USERNAME")
     PASSWORD = os.getenv("PASSWORD")
+    SECURE = os.getenv("SECURE")
+
 except Exception as e:
     print(e)
     exit(1)
 
-
-SECURE = False
+print(USERNAME)
 
 
 # Environment
 def make_env():
     return ScreepsSpawnEnv(
-        user=USER,
+        user=USERNAME,
         password=PASSWORD,
         host=HOST,
-        secure=SECURE,
+        secure=False,
         shard="shard0",
         render_mode=None,
     )

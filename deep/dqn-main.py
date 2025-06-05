@@ -5,6 +5,8 @@ from gymnasium.wrappers import TimeLimit
 from dotenv import load_dotenv
 import os
 
+from ScreepsMetricsCallback import ScreepsMetricsCallback
+
 load_dotenv()
 
 try:
@@ -38,10 +40,9 @@ def make_env():
     )
 
 
-MAX_STEPS = 500
+# MAX_STEPS = 500
 env = DummyVecEnv([make_env])
-env = TimeLimit(env, max_episode_steps=MAX_STEPS)
-# reward/length par épisode
+env = TimeLimit(env, max_episode_steps=20_000)
 env = VecMonitor(env, filename="./logs/monitor.csv")
 
 # Agent
@@ -49,14 +50,14 @@ model = DQN(
     "MlpPolicy",
     env,
     verbose=1,
-    tensorboard_log="./tb",
+    tensorboard_log="./tb_screeps",
     learning_rate=2.5e-4,
     gamma=0.99,
 )
 
 # Callback(s) + entraînement
-model.learn(
-    total_timesteps=1000, progress_bar=True  # nombre total de décisions d'entraînement
-)
+callback = ScreepsMetricsCallback()
+
+model.learn(total_timesteps=1000, progress_bar=True, callback=callback)
 
 model.save("dqn_spawn")

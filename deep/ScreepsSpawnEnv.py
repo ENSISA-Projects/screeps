@@ -3,6 +3,9 @@ import subprocess
 import sys
 import time
 from typing import List, Dict, Tuple, Any
+import json
+from collections.abc import Mapping
+
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -14,6 +17,40 @@ from screepsapi import API
 # ──────────────────────────────────────────────
 PARTS = ["WORK", "CARRY", "MOVE"]
 ROLES = ["harvester", "upgrader"]
+DEBUG_RCL = True
+
+
+# ── Helper global ───────────────────────────
+def js_iife(body: str) -> str:
+    """Emballe le code JS dans une IIFE silencieuse."""
+    return f"(function(){{{body}}})();0"
+
+
+# ── helpers ───────────────────────────────────────────────────────────
+def _to_list(v):
+    # --- déballer la valeur "data" si présent ---
+    if isinstance(v, Mapping) and "data" in v:
+        v = v["data"]  # ← idem ici
+
+    # 1) décodage récursif des chaînes JSON
+    while isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except json.JSONDecodeError:
+            break
+
+    # 2) si c’est encore un Mapping style tableau JS
+    if isinstance(v, Mapping):
+        try:
+            v = [v[str(i)] for i in sorted(map(int, v.keys()))]
+        except Exception:
+            v = list(v.values())
+
+    # 3) fallback sécurité
+    if not isinstance(v, list) or len(v) != 5:
+        v = [0, 0, 0, 1, 0]
+
+    return v
 
 
 def generate_exact_body_combos(parts: List[str], max_parts: int) -> List[List[str]]:
@@ -78,63 +115,82 @@ class ScreepsSpawnEnv(gym.Env):
         # vars internes
         self._prev_state: np.ndarray | None = None
 
+        self._tick = 0  # avance d’un cran à chaque step
+        self._first_spawn_tick = None  # tick où ≥1 creep est en jeu
+        self._creeps_seen = 0  # total de creeps vivants au tick courant
+
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
 
-        # ① on lance ton script externe
+        # reset complet de la room
         subprocess.run([sys.executable, "reset.py"], check=True)
-        #     - sys.executable = le Python en cours
-        #     - check=True ⇒ exception si le script plante
-
-        # ② (facultatif) laisser 2–3 s / ticks au serveur pour appliquer
         self._wait_tick(3)
 
-        # ③ état initial
-        self._inject_state_snippet()
-        self._wait_tick()
-        obs = self._get_obs()
+        # 🔄 remise à zéro des compteurs
+        self._tick = 0
+        self._first_spawn_tick = None
+        self._creeps_seen = 0
+
+        # état initial
+
+        self._wait_tick()  # 1) le serveur termine le tick N
+
+        obs = self._get_obs()  # 2) LIRE dqn_state/dqn_creep_count du tick N
+
+        self._inject_state_snippet()  # 3) PROGRAMMER la mesure pour le tick N+1
+
         self._prev_state = obs.copy()
         return obs, {}
 
-    def step(
-        self,
-        action: int,
-    ) -> Tuple[np.ndarray, float, bool, bool, Dict]:
+    def step(self, action: int):
         act_obj = ACTIONS[action]
 
-        # Exécuter l'action via console JS
+        # ① SPAWN éventuel
         if act_obj["type"] == "SPAWN":
             role = act_obj["role"]
-            body = act_obj["body"]
-            parts = ",".join(body)
-            js = f"""
-                    const room = Object.values(Game.rooms).find(r => r.controller && r.controller.my);
-                    if (room) {{
-                    const spawn = _.find(Game.spawns, s => !s.spawning);
-                    if (spawn && room.energyAvailable >= 200) {{
-                        spawn.spawnCreep(
-                        [{parts}],
-                        `{role[0].upper()}_${{Game.time}}`,
-                        {{ memory: {{ role: '{role}' }} }}
-                        );
-                    }}
-                    }}
-                """
+            parts = ",".join(act_obj["body"])
+            body = (
+                "const room=Object.values(Game.rooms).find(r=>r.controller && r.controller.my);"
+                "if(room){{"
+                " const sp=_.find(Game.spawns,s=>!s.spawning);"
+                " if(sp && room.energyAvailable>=200){{"
+                f"  sp.spawnCreep([{parts}],`{role[0].upper()}_${{Game.time}}`,"
+                f"     {{ memory: {{ role:'{role}' }} }});"
+                " }}"
+                "}}"
+            )
+            self._console(js_iife(body))
 
-            self._console(js)
-        # WAIT → pas d'action
-
-        # Mettre l'état JS à jour + attendre un tick
-        self._inject_state_snippet()
         self._wait_tick()
 
         obs = self._get_obs()
+        self._inject_state_snippet()
+        time.sleep(0.01)
+
+        # ④ lire l’état MAJ
+        obs = self._get_obs()
+
+        # ⑤ compteurs & reward
+        self._tick += 1
+        creep_cnt = self._get_creep_count()
+        if self._first_spawn_tick is None and creep_cnt > 0:
+            self._first_spawn_tick = self._tick
+        self._creeps_seen = creep_cnt
+        if DEBUG_RCL:
+            print(
+                f"[DBG] tick={self._tick+1:4}  ctrl_lvl={obs[3]}  creeps={self._creeps_seen}"
+            )
         reward = self._compute_reward(self._prev_state, obs, act_obj)
         self._prev_state = obs.copy()
 
-        terminated = bool(obs[3] >= 2)  # RCL2 atteint → fin d'épisode
-        truncated = False
-        info: Dict[str, Any] = {}
+        terminated = bool(obs[3] >= 2)  # RCL 2 atteint
+        truncated = False  # TimeLimit se charge du reste
+
+        info = {}
+        if terminated:
+            info["creeps_until_lvl2"] = self._creeps_seen
+            info["ticks_until_lvl2"] = self._tick - self._first_spawn_tick
+
         return obs, reward, terminated, truncated, info
 
     # ── Rendu simple ───────────────────────
@@ -147,6 +203,7 @@ class ScreepsSpawnEnv(gym.Env):
         )
 
     # ── Helpers JS/API ──────────────────────
+
     def _console(self, code: str) -> None:
         self.api.console(code, shard=self.shard)
 
@@ -154,21 +211,32 @@ class ScreepsSpawnEnv(gym.Env):
         time.sleep(0.1 * n)
 
     def _inject_state_snippet(self):
-        """Injecte du JS qui calcule l'état et le place dans Memory.dqn_state."""
-        js = (
-            "const room=Object.values(Game.rooms).find(r=>r.controller && r.controller.my);"
-            "if(room){"
-            "const e=room.energyAvailable>=200?1:0;"
-            "const h=_.sum(_.filter(Game.creeps,c=>c.memory.role==='harvester').map(c=>c.getActiveBodyparts(WORK)));"
-            "const u=_.sum(_.filter(Game.creeps,c=>c.memory.role==='upgrader').map(c=>c.getActiveBodyparts(WORK)));"
-            "const cl=room.controller.level;"
-            "const cp=Math.floor(room.controller.progress/100);"
-            "Memory.dqn_state=[e,h,u,cl,cp];}"
+        js = js_iife(
+            f"""
+            const room = Object.values(Game.rooms).find(r => r.controller && r.controller.my);
+            if (room) {{
+                const e  = room.energyAvailable >= 200 ? 1 : 0;
+                const h  = _.sum(_.filter(Game.creeps, c => c.memory.role === 'harvester')
+                                .map(c => c.getActiveBodyparts(WORK)));
+                const u  = _.sum(_.filter(Game.creeps, c => c.memory.role === 'upgrader')
+                                .map(c => c.getActiveBodyparts(WORK)));
+                const cl = room.controller.level;
+                const cp = Math.floor(room.controller.progress / 100);
+
+                Memory.dqn_state       = JSON.stringify([e, h, u, cl, cp]);
+
+                Memory.dqn_creep_count = Object.keys(Game.creeps).length;
+            }}
+            """
         )
         self._console(js)
 
     def _get_obs(self) -> np.ndarray:
-        mem = self.api.memory("", shard=self.shard).get("dqn_state", [0, 0, 0, 1, 0])
+        try:
+            raw = self.api.memory("dqn_state", shard=self.shard)
+        except Exception:
+            raw = None
+        mem = _to_list(raw)
         return np.array(mem, dtype=np.float32)
 
     def _compute_reward(
@@ -198,3 +266,18 @@ class ScreepsSpawnEnv(gym.Env):
             r += 20.0
 
         return r
+
+    # ── nombre de creeps ──────────────────────────────────────────────────
+    def _get_creep_count(self) -> int:
+        raw = self.api.memory("dqn_creep_count", shard=self.shard)
+
+        if isinstance(raw, Mapping):  # OrderedDict {'ok':1,'data':0}
+            raw = raw.get("data", 0)  # ← on prend la bonne clé
+
+        while isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                break
+
+        return int(raw or 0)

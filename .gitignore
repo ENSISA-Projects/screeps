@@ -10,3 +10,4 @@ deep/.env
 /deep/logs
 /deep/tb
 deep/dqn_spawn.zip
+/deep/tb_screeps

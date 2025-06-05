@@ -1,4 +1,8 @@
 # screeps AI project
+Demo of the game :
+
+https://github.com/user-attachments/assets/1603e87a-926d-4b6d-8544-819db98f230c
+
 
 To launch random, Q-learning, genetic :
 Just copy the directory in your game folder
@@ -21,3 +25,6 @@ Once train is done :
 ```bash
 tensorboard --logdir tb_screeps
 ```
+
+
+

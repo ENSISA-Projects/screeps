@@ -25,8 +25,6 @@ except Exception as e:
     print(e)
     exit(1)
 
-print(USERNAME)
-
 
 # Environment
 def make_env():

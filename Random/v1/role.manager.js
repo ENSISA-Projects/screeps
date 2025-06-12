@@ -1,61 +1,79 @@
-const ACTIONS = ['SPAWN', 'HARVEST', 'UPGRADE'];
+/******************************************************************************
+ *  role.manager.js — minimal “coin-flip” colony driver
+ *  ---------------------------------------------------
+ *  This script is *not* an intelligent AI: each tick it simply chooses one
+ *  action at random among:
+ *
+ *      • "SPAWN"   – create a creep with the BASIC_BODY
+ *      • "HARVEST" – order every creep to harvest the nearest source
+ *      • "UPGRADE" – order every creep to upgrade the room controller
+ ******************************************************************************/
 
-/** Corps minimal — 200 énergie */
+const ACTIONS = ["SPAWN", "HARVEST", "UPGRADE"];
+
+// Minimal body costs 200 energy
 const BASIC_BODY = [WORK, CARRY, MOVE];
 
-/** Dictionnaire des fonctions à exécuter */
 const handlers = {
-
+  /* ***********************************************************************
+   *  SPAWN
+   *  -----
+   *  • Finds the first idle spawn in the room.
+   *  • If at least 200 energy is available, spawns a creep with BASIC_BODY.
+   ********************************************************************** */
   SPAWN() {
-    // prend le premier spawn libre
-    const spawn = _.find(Game.spawns, s => !s.spawning);
+    const spawn = _.find(Game.spawns, (s) => !s.spawning);
     if (!spawn) return;
 
     if (spawn.room.energyAvailable >= 200) {
       const name = `rndCreep${Game.time}`;
-      const ret  = spawn.spawnCreep(BASIC_BODY, name);
+      const ret = spawn.spawnCreep(BASIC_BODY, name);
       if (ret === OK) {
         console.log(`[RANDOM] SPAWN → ${name}`);
       }
     }
   },
 
+  /* ***********************************************************************
+   *  HARVEST
+   *  -------
+   *  • For every creep, move/harvest the closest active source.
+   ********************************************************************** */
   HARVEST() {
-    console.log('[RANDOM] HARVEST');
+    console.log("[RANDOM] HARVEST");
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
-      const src   = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
+      const src = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
       if (src) {
         if (creep.harvest(src) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(src, { visualizePathStyle: { stroke: '#ffaa00' } });
+          creep.moveTo(src, { visualizePathStyle: { stroke: "#ffaa00" } });
         }
       }
     }
   },
 
+  /* ***********************************************************************
+   *  UPGRADE
+   *  -------
+   *  • For every creep, move/upgrade the room controller.
+   ********************************************************************** */
   UPGRADE() {
-    console.log('[RANDOM] UPGRADE');
+    console.log("[RANDOM] UPGRADE");
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
-      const ctrl  = creep.room.controller;
+      const ctrl = creep.room.controller;
       if (ctrl) {
         if (creep.upgradeController(ctrl) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(ctrl, { visualizePathStyle: { stroke: '#ffffff' } });
+          creep.moveTo(ctrl, { visualizePathStyle: { stroke: "#ffffff" } });
         }
       }
     }
-  }
+  },
 };
 
+// Main loop — executed once per tick
 module.exports.loop = function () {
-
-  /* --- Sélection aléatoire de l’action --- */
-  const action = _.sample(ACTIONS);   // _.sample fait partie de lodash, dispo nativement
+  // Pick a random action and execute its handler
+  const action = _.sample(ACTIONS);
   handlers[action]();
-
-  /* --- Log facultatif des ressources de la room principale --- */
-  const room = Game.rooms[Object.keys(Game.rooms)[0]];
-  if (room) {
-    console.log(`Room ${room.name}: ${room.energyAvailable}/${room.energyCapacityAvailable} energy`);
-  }
 };

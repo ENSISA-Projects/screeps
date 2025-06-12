@@ -14,7 +14,7 @@
 
 const key = (s, action) => {
   if (action.type === "WAIT") return `${s}|WAIT`;
-  // pour un spawn : on concatène rôle + body
+  // spawn role_body1-body2-...
   return `${s}|SPAWN_${action.role}_${action.body.join("-")}`;
 };
 

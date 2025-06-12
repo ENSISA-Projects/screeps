@@ -7,18 +7,16 @@
  *  Key features
  *  ------------
  *  • All *exact* 3-part body permutations of {WORK,CARRY,MOVE} are explored.
- *  • One epoch lasts until either the room hits RCL 2.
+ *  • One epoch lasts until the room hits RCL 2.
  *  • At the end of an epoch the Q-table is saved to *segment 0* and a compact
  *    metrics summary to *segment 1*, then the script sets `Memory.wantReset`
  *    so an external watcher can trigger `resetUser`.
  *  • During the epoch the loop auto-logs progress every `SAVE_EACH` ticks.
  ******************************************************************************/
 
-/* ---------- paramètres ---------- */
-const SEG_ID = 0; // segment mémoire pour Q-table
-const METRICS_SEG = 1; // segment mémoire pour les métriques
+const SEG_ID = 0; // Q-table segment ID
+const METRICS_SEG = 1; // Metrics segment ID
 const SAVE_EACH = 100;
-/* -------------------------------- */
 
 function generateExactBodyCombos(parts, maxParts) {
   const combos = [];
@@ -63,7 +61,7 @@ if (Memory.epochTick === undefined) Memory.epochTick = 0;
 if (Memory.wantReset && roomExistsAfterReset()) {
   delete Memory.wantReset;
   Memory.epochTick = 0;
-  console.log("[EPOCH] reset, Q-learning relancé");
+  console.log("[EPOCH] reset, Q-learning relaunched");
 }
 if (!Memory.evaluation) {
   Memory.evaluation = {
@@ -82,11 +80,11 @@ function state(room) {
 
 module.exports.loop = function () {
   if (Memory.wantReset) {
-    if (Game.time % 20 === 0) console.log("[EPOCH] en attente resetUser…");
+    if (Game.time % 20 === 0) console.log("[EPOCH] waiting for resetUser...");
     return;
   }
 
-  // --- restauration de la Q-table si nécessaire
+  // Load Q-table from segment 0
   if (!Memory.brainLoaded) {
     RawMemory.setActiveSegments([SEG_ID]);
     const seg = RawMemory.segments[SEG_ID];
@@ -96,9 +94,7 @@ module.exports.loop = function () {
         Memory.brain = parsed.brain;
         Memory.brainLoaded = true;
         console.log(
-          `[PERSIST] Q-table restaurée |Q|=${
-            Object.keys(parsed.brain.q).length
-          }`
+          `[PERSIST] Q-table restored |Q|=${Object.keys(parsed.brain.q).length}`
         );
       } catch (e) {
         console.log("[PERSIST] parse error (corrupted):", e);
@@ -110,17 +106,16 @@ module.exports.loop = function () {
   const room = Game.rooms[Object.keys(Game.rooms)[0]];
   if (!room) return;
 
-  // --- FIN D’ÉPOQUE IMMÉDIATE : RCL2 atteint
+  // Epoch reset logic
   if (room.controller.level >= 2 && !Memory.wantReset) {
-    // 1) Sauvegarde Q-table
+    // Save Q-table and metrics
     RawMemory.setActiveSegments([SEG_ID]);
     RawMemory.segments[SEG_ID] = JSON.stringify({ brain: Memory.brain });
 
-    // 2) Sauvegarde métriques
     RawMemory.setActiveSegments([METRICS_SEG]);
     RawMemory.segments[METRICS_SEG] = JSON.stringify(Memory.evaluation);
 
-    // 3) Construis un résumé au lieu de tout dumper
+    // Build summary metrics
     const hist = Memory.evaluation.history;
     const summary = {
       startTick: Memory.evaluation.startTick,
@@ -138,27 +133,27 @@ module.exports.loop = function () {
     };
     console.log("[METRICS]", JSON.stringify(summary));
 
-    // 4) Vide le segment métriques pour rester < 100 KB
+    // Clear metrics segment after saving <100kB
     RawMemory.segments[METRICS_SEG] = "";
 
-    // 5) Désactive tout segment avant cleanup
+    // Desactivate segments
     RawMemory.setActiveSegments([]);
 
-    // 6) Cleanup mémoire et déclenche reset d’époque
+    // Reset Memory for next epoch
     delete Memory.evaluation;
     Memory.wantReset = true;
     console.log(
-      "[EPOCH] RCL2 atteint, Q-table et métriques sauvegardées, attente reset"
+      "[EPOCH] RCL2 reached, Q-table and metrics saved, waiting for reset"
     );
     return;
   }
 
-  // --- Q-learning : choix d’action de spawn
+  // Q-learning logic
   const S = state(room);
   const A = brain.act(S, ACTIONS);
   Memory.evaluation.actionsTaken++;
 
-  // exécution du spawn ou WAIT
+  // Execute action
   if (A.type === "SPAWN") {
     const spawn = _.find(Game.spawns, (s) => !s.spawning);
     if (spawn && room.energyAvailable >= 200) {
@@ -168,24 +163,24 @@ module.exports.loop = function () {
     }
   }
 
-  // exécution logique des creeps
+  // Creeps logic execution
   let anyDid = false;
   for (const name in Game.creeps) {
     if (creepLogic.run(Game.creeps[name])) anyDid = true;
   }
 
-  // calcul de la récompense
+  // Reward calculation
   let R = -0.1;
   if (A.type === "SPAWN" && (!A.body.includes(MOVE) || !anyDid)) {
     R = -1;
   }
   if (room.controller.level >= 2) R += 20;
 
-  // apprentissage
+  // Learning
   const S2 = state(room);
   brain.learn(S, A, R, S2, ACTIONS);
 
-  // collecte des métriques
+  // Collect metrics
   if (Memory.epochTick % SAVE_EACH === 0) {
     Memory.evaluation.history.push({
       tick: Game.time,

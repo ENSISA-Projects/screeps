@@ -41,7 +41,7 @@ function findDepositTarget(creep) {
 }
 
 function findWithdrawSource(creep) {
-  // for upgrader: withdraw from storage/spawn/extension/container
+  // Upgrader withdraw from storage|spawn|extension|container
   return creep.pos.findClosestByPath(FIND_STRUCTURES, {
     filter: (s) =>
       (((s.structureType === STRUCTURE_SPAWN ||
@@ -62,27 +62,27 @@ function computeReward(creep, action, did) {
   return did ? 1 : -1;
 }
 
+// States [hasEnergy, canWork]
 function creepState(creep) {
-  // state: [hasEnergy, canWork]
   const hasEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0 ? 1 : 0;
   const canWork = creep.getActiveBodyparts(WORK) > 0 ? 1 : 0;
   return `${hasEnergy}${canWork}`;
 }
 
 module.exports.run = function (creep) {
-  // select actions based on role
+  // Select actions based on role
   const role = creep.memory.role;
   const actions = role === "harvester" ? HARVESTER_ACTIONS : UPGRADER_ACTIONS;
 
-  // init brain
+  // Init brain
   if (!creep.memory.brain) {
     creep.memory.brain = { q: {}, alpha: 0.2, gamma: 0.9, epsilon: 0.5 };
   }
 
-  // current state
+  // Current state
   const S = creepState(creep);
 
-  // determine if action completed
+  // Determine if action completed
   const freeCap = creep.store.getFreeCapacity(RESOURCE_ENERGY);
   const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   let doneHarvest = false,
@@ -94,7 +94,7 @@ module.exports.run = function (creep) {
   if (actions.includes("WITHDRAW")) doneWithdraw = usedEnergy > 0;
   if (actions.includes("UPGRADE")) doneUpgrade = usedEnergy === 0;
 
-  // select or maintain action
+  // Select or maintain action
   let action = creep.memory.currentAction;
   const isDone =
     (action === "HARVEST" && doneHarvest) ||
@@ -106,7 +106,7 @@ module.exports.run = function (creep) {
     creep.memory.currentAction = action;
   }
 
-  // execute action
+  // Execute action
   let did = false;
   if (action === "HARVEST") {
     if (freeCap > 0 && creep.getActiveBodyparts(WORK) > 0) {
@@ -146,12 +146,12 @@ module.exports.run = function (creep) {
     }
   }
 
-  // learn
+  // Learning
   const S2 = creepState(creep);
   const reward = computeReward(creep, action, did);
   brain.learn(S, action, reward, S2, actions, creep.memory.brain);
 
-  // clear on done
+  // Clear on done
   if (isDone) delete creep.memory.currentAction;
   return did;
 };

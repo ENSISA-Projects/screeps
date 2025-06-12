@@ -2,7 +2,6 @@ module.exports = {
   run(creep) {
     const room = creep.room;
 
-    // 0) Récupérer de l'énergie si vide
     if (creep.store[RESOURCE_ENERGY] === 0) {
       const source =
         room.storage && room.storage.store[RESOURCE_ENERGY] > 0
@@ -30,7 +29,7 @@ module.exports = {
       filter: (s) => s.structureType === STRUCTURE_EXTENSION,
     });
 
-    // 1) Créer jusqu’à 2 extensions si le contrôleur est niveau 2
+    // Create up to 2 extensions if controller is level 2
     if (room.controller.level >= 2) {
       const extSites = sites.filter(
         (s) => s.structureType === STRUCTURE_EXTENSION
@@ -61,7 +60,7 @@ module.exports = {
       }
     }
 
-    // 2) Construire le chantier le plus proche
+    // Build the closest construction site
     if (sites.length > 0) {
       const site = creep.pos.findClosestByPath(sites);
       if (site) {
@@ -72,7 +71,7 @@ module.exports = {
       }
     }
 
-    // 3) Poser des routes si aucun chantier n'existe
+    // Set roads if no construction sites exist
     const sources = room.find(FIND_SOURCES);
     const storageTargets = room.find(FIND_MY_STRUCTURES, {
       filter: (s) =>
@@ -81,42 +80,57 @@ module.exports = {
         s.structureType === STRUCTURE_CONTAINER,
     });
 
-    // Routes entre sources et stockages
+    // Utility: place a road only if the tile is clear *and* not the controller / a spawn
+    function tryBuildRoad(room, x, y) {
+      // Never on the room controller
+      if (
+        room.controller &&
+        room.controller.pos.x === x &&
+        room.controller.pos.y === y
+      )
+        return;
+
+      // Never on an owned spawn
+      if (
+        room
+          .lookForAt(LOOK_STRUCTURES, x, y)
+          .some((s) => s.structureType === STRUCTURE_SPAWN)
+      )
+        return;
+
+      // Skip if a road already exists or is queued
+      if (
+        room
+          .lookForAt(LOOK_STRUCTURES, x, y)
+          .some((s) => s.structureType === STRUCTURE_ROAD) ||
+        room.lookForAt(LOOK_CONSTRUCTION_SITES, x, y).length > 0
+      )
+        return;
+
+      room.createConstructionSite(x, y, STRUCTURE_ROAD);
+    }
+
+    // Roads from each source to every storage/extension/… target
     for (const src of sources) {
       for (const target of storageTargets) {
         const path = room.findPath(src.pos, target.pos, { ignoreCreeps: true });
         for (const pos of path) {
-          if (
-            room.lookForAt(LOOK_CONSTRUCTION_SITES, pos.x, pos.y).length ===
-              0 &&
-            room
-              .lookForAt(LOOK_STRUCTURES, pos.x, pos.y)
-              .every((s) => s.structureType !== STRUCTURE_ROAD)
-          ) {
-            room.createConstructionSite(pos.x, pos.y, STRUCTURE_ROAD);
-          }
+          tryBuildRoad(room, pos.x, pos.y);
         }
       }
     }
 
-    // Routes entre stockage et contrôleur
+    // Roads from every storage target to the room controller
     for (const target of storageTargets) {
       const path = room.findPath(target.pos, room.controller.pos, {
         ignoreCreeps: true,
       });
       for (const pos of path) {
-        if (
-          room.lookForAt(LOOK_CONSTRUCTION_SITES, pos.x, pos.y).length === 0 &&
-          room
-            .lookForAt(LOOK_STRUCTURES, pos.x, pos.y)
-            .every((s) => s.structureType !== STRUCTURE_ROAD)
-        ) {
-          room.createConstructionSite(pos.x, pos.y, STRUCTURE_ROAD);
-        }
+        tryBuildRoad(room, pos.x, pos.y);
       }
     }
-    //TODO interdire route sur le controlleur / spawner
-    // 4) Attente active : se déplacer vers le contrôleur
+
+    // Wait at the controller (maybe we could suicide)
     creep.moveTo(room.controller);
   },
 };

@@ -1,12 +1,35 @@
+/******************************************************************************
+ *  main.js — guided random role-based colony manager with spawn heuristics
+ *  ---------------------------------------------------------
+ *  Features
+ *  --------
+ *  • **Three creep roles** handled by separate modules:
+ *        – role.harvester
+ *        – role.builder
+ *        – role.upgrader
+ *  • **Adaptive spawning**
+ *        – Chooses the largest affordable body from BODIES.
+ *        – Simple heuristic to keep the economy balanced:
+ *            ▸ ≥ 2 harvesters at all times
+ *            ▸ harvesters ≈ 60 % of total creeps
+ *            ▸ up to 2 builders once a room reaches RCL ≥ 2
+ *            ▸ ≤ 3 upgraders, never more than harvesters
+ *  • **Controller-level timing**
+ *        – Logs how many ticks each room takes to advance controller levels
+ *          (1→2, 2→3, …).
+ *  • **Failsafe bootstrap**
+ *        – If the colony wipes, the script force-spawns a lone harvester.
+ ******************************************************************************/
+
 const roleHarvester = require("role.harvester");
 const roleBuilder = require("role.builder");
 const roleUpgrader = require("role.upgrader");
 
-// Suivi du temps de montée en niveau du contrôleur
+// how long each room spends at a given controller level
 if (!Memory.ctrlLevelTimes) {
   Memory.ctrlLevelTimes = {};
 }
-
+// Record time spent at each controller level and log milestones
 function logControllerLevelTime(room) {
   const ctrl = room.controller;
   if (!ctrl) return;
@@ -17,7 +40,7 @@ function logControllerLevelTime(room) {
     time: Game.time,
   };
 
-  if (lvl > last.level) {
+  if (lvl > last.level && lvl > 1) {
     const delta = Game.time - last.time;
     console.log(
       `Room ${room.name} controller leveled up: ${last.level} -> ${lvl} in ${delta} ticks.`
@@ -33,6 +56,7 @@ function logControllerLevelTime(room) {
   }
 }
 
+// Pre-defined body tiers (indexed by energy cost)
 const BODIES = [
   { cost: 200, body: [WORK, CARRY, MOVE] },
   { cost: 400, body: [WORK, WORK, CARRY, CARRY, MOVE, MOVE] },
@@ -42,6 +66,7 @@ const BODIES = [
   },
 ];
 
+// Return the most expensive body we can afford right now (storages energy cap).
 function bestBody(room) {
   const cap = room.energyCapacityAvailable;
   const affordable = _.filter(BODIES, (b) => b.cost <= cap);
@@ -49,6 +74,7 @@ function bestBody(room) {
   return _.max(affordable, (b) => b.cost).body;
 }
 
+// Heuristic role selector for the next creep
 function chooseRole() {
   const counts = _.countBy(Game.creeps, (c) => c.memory.role);
   const total = _.size(Game.creeps);
@@ -60,10 +86,10 @@ function chooseRole() {
   // minimum 2 harvesters
   if (harvesters < 2) return "harvester";
 
-  // ratio 60% harvesters ou pas assez?
+  // ratio 60% harvesters (maybe not even enough ...)
   if (harvesters / total < 0.6) return "harvester";
 
-  // pas plus d'1 builder si on a moins de 5 creeps
+  // allow 2 builders if RCL >= 2
   const hasLevel2Room = _.some(
     Game.rooms,
     (room) => room.controller && room.controller.level >= 2
@@ -71,19 +97,22 @@ function chooseRole() {
 
   if (hasLevel2Room && builders < 2 && total >= 4) return "builder";
 
-  // limite upgraders
+  // limit upgraders
   if (upgraders < harvesters && upgraders < 3) return "upgrader";
 
-  // sinon random entre harvester/upgrader
+  // otherwise random between harvester/upgrader
   return _.sample(["harvester", "upgrader"]);
 }
 
+// Main loop - runs every tick
 module.exports.loop = function () {
   try {
+    // Spawn selection
     const spawn = _.find(Game.spawns, (s) => !s.spawning);
+    if (!spawn) return;
     const room = spawn.room;
 
-    // Cas spécial (suicide de la colonie) => on doit relancer
+    // Colony wiped? Bootstrap with a single harvester
     if (spawn && _.isEmpty(Game.creeps)) {
       const body = [WORK, CARRY, MOVE]; // 200 énergie
       if (room.energyAvailable >= 200) {
@@ -94,7 +123,7 @@ module.exports.loop = function () {
       return;
     }
 
-    // Spawn ~33% des ticks (si creeps vivants)
+    // Attempt to spawn ≈ 33 % of the ticks
     if (_.random(0, 2) === 0 && spawn) {
       const body = bestBody(room);
       const cost = _.sum(body, (p) => BODYPART_COST[p]);
@@ -107,7 +136,7 @@ module.exports.loop = function () {
       }
     }
 
-    // Log du contrôleur
+    // Log controller level times
     for (const name in Game.rooms) {
       const room = Game.rooms[name];
       if (room.controller && room.controller.my) {
@@ -115,7 +144,7 @@ module.exports.loop = function () {
       }
     }
 
-    // Exécution des rôles
+    // Execute creep roles
     for (const name in Game.creeps) {
       const creep = Game.creeps[name];
       switch (creep.memory.role) {
@@ -129,10 +158,10 @@ module.exports.loop = function () {
           roleUpgrader.run(creep);
           break;
         default:
-          creep.say("❓");
+          creep.say("error");
       }
     }
   } catch (err) {
-    console.log("💥 Error in main loop:", err.stack || err.message);
+    console.log("Error in main loop:", err.stack || err.message);
   }
 };

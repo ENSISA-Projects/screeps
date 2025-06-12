@@ -1,6 +1,5 @@
 module.exports = {
   run(creep) {
-    /* 1. Si vide → prendre énergie dans un stockage proche */
     if (creep.store[RESOURCE_ENERGY] === 0) {
       const source = creep.pos.findClosestByPath(FIND_STRUCTURES, {
         filter: (s) =>
@@ -20,7 +19,6 @@ module.exports = {
       return;
     }
 
-    /* 2. Sinon → upgrade le contrôleur */
     const ctrl = creep.room.controller;
     if (ctrl && creep.upgradeController(ctrl) === ERR_NOT_IN_RANGE) {
       creep.moveTo(ctrl, { visualizePathStyle: { stroke: "#ffffff" } });

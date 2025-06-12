@@ -1,8 +1,23 @@
+/******************************************************************************
+ *  main.js — Q-learning with persistence and epoch resets
+ *  ---------------------------------------------------------------
+ *  This main loop trains a Q-table that decides which creep body/role
+ *  to spawn (or to WAIT) under a 3-bit room state.
+ *
+ *  Key features
+ *  ------------
+ *  • All *exact* 3-part body permutations of {WORK,CARRY,MOVE} are explored.
+ *  • One epoch lasts until either the room hits RCL 2.
+ *  • At the end of an epoch the Q-table is saved to *segment 0* and a compact
+ *    metrics summary to *segment 1*, then the script sets `Memory.wantReset`
+ *    so an external watcher can trigger `resetUser`.
+ *  • During the epoch the loop auto-logs progress every `SAVE_EACH` ticks.
+ ******************************************************************************/
+
 /* ---------- paramètres ---------- */
-const SEG_ID      = 0;    // segment mémoire pour Q-table
-const EPOCH_TICKS = 6000;
-const METRICS_SEG = 1;    // segment mémoire pour les métriques
-const SAVE_EACH   = 100;
+const SEG_ID = 0; // segment mémoire pour Q-table
+const METRICS_SEG = 1; // segment mémoire pour les métriques
+const SAVE_EACH = 100;
 /* -------------------------------- */
 
 function generateExactBodyCombos(parts, maxParts) {
@@ -23,10 +38,10 @@ function generateExactBodyCombos(parts, maxParts) {
 }
 
 const ALL_BODIES = generateExactBodyCombos([WORK, CARRY, MOVE], 3);
-const brain       = require("qlearning");
-const creepLogic  = require("creep");
+const brain = require("qlearning");
+const creepLogic = require("creep");
 
-const ROLES   = ["harvester", "upgrader"];
+const ROLES = ["harvester", "upgrader"];
 const ACTIONS = [];
 for (const body of ALL_BODIES) {
   for (const role of ROLES) {
@@ -36,7 +51,9 @@ for (const body of ALL_BODIES) {
 ACTIONS.push({ type: "WAIT" });
 
 function roomExistsAfterReset() {
-  const myRooms = Object.values(Game.rooms).filter(r => r.controller && r.controller.my);
+  const myRooms = Object.values(Game.rooms).filter(
+    (r) => r.controller && r.controller.my
+  );
   if (!myRooms.length) return false;
   const r = myRooms[0];
   return r.controller.level === 1 && _.isEmpty(Game.creeps);
@@ -50,16 +67,16 @@ if (Memory.wantReset && roomExistsAfterReset()) {
 }
 if (!Memory.evaluation) {
   Memory.evaluation = {
-    startTick:    Game.time,
+    startTick: Game.time,
     actionsTaken: 0,
-    history:      []
+    history: [],
   };
 }
 
 function state(room) {
   const e = room.energyAvailable >= 200 ? 1 : 0;
-  const h = _.some(Game.creeps, c => c.memory.role === "harvester") ? 1 : 0;
-  const u = _.some(Game.creeps, c => c.memory.role === "upgrader")   ? 1 : 0;
+  const h = _.some(Game.creeps, (c) => c.memory.role === "harvester") ? 1 : 0;
+  const u = _.some(Game.creeps, (c) => c.memory.role === "upgrader") ? 1 : 0;
   return `${e}${h}${u}`;
 }
 
@@ -79,7 +96,9 @@ module.exports.loop = function () {
         Memory.brain = parsed.brain;
         Memory.brainLoaded = true;
         console.log(
-          `[PERSIST] Q-table restaurée |Q|=${Object.keys(parsed.brain.q).length}`
+          `[PERSIST] Q-table restaurée |Q|=${
+            Object.keys(parsed.brain.q).length
+          }`
         );
       } catch (e) {
         console.log("[PERSIST] parse error (corrupted):", e);
@@ -104,18 +123,18 @@ module.exports.loop = function () {
     // 3) Construis un résumé au lieu de tout dumper
     const hist = Memory.evaluation.history;
     const summary = {
-      startTick:    Memory.evaluation.startTick,
+      startTick: Memory.evaluation.startTick,
       actionsTaken: Memory.evaluation.actionsTaken,
       historyCount: hist.length,
       controllerLevel: room.controller.level,
-      firstEntry:   hist[0],
+      firstEntry: hist[0],
       lastEntry: {
-      tick:               Game.time,
-      controllerLevel: room.controller.level,
-      controllerProgress: room.controller.progress,
-      harvester:          _.countBy(Game.creeps, c => c.memory.role).harvester || 0,
-      upgrader:           _.countBy(Game.creeps, c => c.memory.role).upgrader  || 0,
-    },
+        tick: Game.time,
+        controllerLevel: room.controller.level,
+        controllerProgress: room.controller.progress,
+        harvester: _.countBy(Game.creeps, (c) => c.memory.role).harvester || 0,
+        upgrader: _.countBy(Game.creeps, (c) => c.memory.role).upgrader || 0,
+      },
     };
     console.log("[METRICS]", JSON.stringify(summary));
 
@@ -128,10 +147,11 @@ module.exports.loop = function () {
     // 6) Cleanup mémoire et déclenche reset d’époque
     delete Memory.evaluation;
     Memory.wantReset = true;
-    console.log("[EPOCH] RCL2 atteint, Q-table et métriques sauvegardées, attente reset");
+    console.log(
+      "[EPOCH] RCL2 atteint, Q-table et métriques sauvegardées, attente reset"
+    );
     return;
   }
-
 
   // --- Q-learning : choix d’action de spawn
   const S = state(room);
@@ -140,7 +160,7 @@ module.exports.loop = function () {
 
   // exécution du spawn ou WAIT
   if (A.type === "SPAWN") {
-    const spawn = _.find(Game.spawns, s => !s.spawning);
+    const spawn = _.find(Game.spawns, (s) => !s.spawning);
     if (spawn && room.energyAvailable >= 200) {
       spawn.spawnCreep(A.body, `${A.role[0].toUpperCase()}${Game.time}`, {
         memory: { role: A.role },
@@ -161,22 +181,19 @@ module.exports.loop = function () {
   }
   if (room.controller.level >= 2) R += 20;
 
-
   // apprentissage
   const S2 = state(room);
   brain.learn(S, A, R, S2, ACTIONS);
 
   // collecte des métriques
   if (Memory.epochTick % SAVE_EACH === 0) {
-  Memory.evaluation.history.push({
-    tick: Game.time,
-    controllerLevel: room.controller.level,
-    controllerProgress: room.controller.progress,
-    harvester: _.countBy(Game.creeps, c => c.memory.role).harvester || 0,
-    upgrader:  _.countBy(Game.creeps, c => c.memory.role).upgrader  || 0,
-  });
-}
+    Memory.evaluation.history.push({
+      tick: Game.time,
+      controllerLevel: room.controller.level,
+      controllerProgress: room.controller.progress,
+      harvester: _.countBy(Game.creeps, (c) => c.memory.role).harvester || 0,
+      upgrader: _.countBy(Game.creeps, (c) => c.memory.role).upgrader || 0,
+    });
+  }
   Memory.epochTick++;
 };
-
-

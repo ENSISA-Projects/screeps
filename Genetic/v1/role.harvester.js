@@ -1,7 +1,7 @@
 module.exports = {
   run(creep) {
 
-    /* 1. Récolter */
+    // Harvest
     if (creep.store.getFreeCapacity() > 0) {
       const src = creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
       if (src && creep.harvest(src) === ERR_NOT_IN_RANGE) {
@@ -10,7 +10,7 @@ module.exports = {
       return;
     }
 
-    /* 2. Déposer l’énergie */
+    // Transfer energy
     const target = creep.pos.findClosestByPath(FIND_STRUCTURES, {
       filter: s =>
         (

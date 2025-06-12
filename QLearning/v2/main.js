@@ -1,4 +1,21 @@
-
+/******************************************************************************
+ *  main.js - Advanced Q-learning loop with multi-body spawning and epoch persistence
+ *  ----------------------------------------------------------------------
+ *  This main-loop script drives a Screeps colony with a tabular Q-learning
+ *  brain (`qlearning.js`).  Compared with the simpler examples, it adds:
+ *    • **Arbitrary bodies.**  All three-part combinations of {WORK,CARRY,MOVE}
+ *      are part of the action space, for both harvesters and upgraders.
+ *    • **Evaluation mode.**  Set `Memory.evalMode = true` in console to freeze
+ *      the Q-table and run the colony greedily for benchmarking.
+ *    • **Epoch control.**  One epoch lasts `EPOCH_TICKS` (6 000) ticks or ends
+ *      as soon as the room reaches RCL 2, after which the segment is flushed
+ *      and a reset is requested.
+ *    • **Dual-segment storage.**  Segment 0 stores the Q-table, segment 1
+ *      stores detailed metrics for later analysis.
+ *    • **Reward shaping & episode learning.**  Negative living cost, positive
+ *      rewards for useful spawns and controller progress, strong penalty for
+ *      malformed creeps, per-episode learning in the brain helper.
+ ******************************************************************************/
 
 
 const SEG_ID      = 0;

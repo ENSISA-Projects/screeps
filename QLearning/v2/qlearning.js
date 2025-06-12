@@ -1,7 +1,15 @@
-// -----------------------------------------------------------------------------
-// qlearning-improved.js — v2 (23 mai 2025)
-// Ajout de la possibilité de geler l’apprentissage (mode évaluation)
-// -----------------------------------------------------------------------------
+/******************************************************************************
+ *  qlearning.js improved
+ *  ----------------------------------------
+ *  Tabular Q-learning helper with **episode-based Monte-Carlo updates** and the
+ *  ability to **freeze learning** (evaluation mode).  
+ *
+ *  • `setFrozen(true)`  → exploration ε = 0, Q-table read-only, stats only.  
+ *  • `act()`            → ε-greedy (or greedy if frozen).  
+ *  • `recordStep()`     → log (s,a,r) into the current episode buffer.  
+ *  • `learnEpisode()`   → Monte-Carlo return computation + Q-update.  
+ *  • `learn()`          → classic one-step Q-learning (kept for convenience).  
+ ******************************************************************************/
 
 const DEFAULT_CONFIG = {
   alpha:          0.2,

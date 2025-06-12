@@ -1,8 +1,5 @@
-
 module.exports = {
-
-
-generateExactBodyCombos: function(parts, maxParts) {
+  generateExactBodyCombos: function (parts, maxParts) {
     const combos = [];
     function helper(prefix, depth) {
       if (depth === maxParts) {
@@ -19,13 +16,12 @@ generateExactBodyCombos: function(parts, maxParts) {
     return combos;
   },
 
-
-
-
   roomExistsAfterReset() {
-    const myRooms = Object.values(Game.rooms).filter(r => r.controller && r.controller.my);
+    const myRooms = Object.values(Game.rooms).filter(
+      (r) => r.controller && r.controller.my
+    );
     if (!myRooms.length) return false;
     const r = myRooms[0];
     return r.controller.level === 1 && _.isEmpty(Game.creeps);
-  }
-}
+  },
+};

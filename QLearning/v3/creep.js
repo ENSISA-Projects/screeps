@@ -1,13 +1,28 @@
-// creep.js
-/**
- * Q-learning per creep, with role-specific action sets:
- * - Harvester: ['HARVEST','TRANSFER']
- * - Upgrader: ['WITHDRAW','UPGRADE']
- */
-const brain = require('creep.brain');
+/******************************************************************************
+ *  creep.js — per-creep Q-learning runner
+ *  --------------------------------------
+ *  Each creep stores its own brain in `creep.memory.brain`
+ *  (independent Q-table, α, γ, ε).
+ *
+ *  Action sets
+ *  ───────────
+ *    • **Harvester** :  [ "HARVEST",  "TRANSFER" ]
+ *    • **Upgrader**  :  [ "WITHDRAW", "UPGRADE"  ]
+ *
+ *  Tick flow for a single creep
+ *  ----------------------------
+ *    1.  Build a 2-bit state “hasEnergy canWork”.
+ *    2.  Decide whether the current action finished (e.g. carry is full).
+ *    3.  If finished or none chosen yet → ε-greedy pick via `brain.act()`.
+ *    4.  Execute the action (move or work), set **did** flag if work done.
+ *    5.  Reward = +1 if **did**, −1 otherwise.
+ *    6.  Q-update with `brain.learn()`.
+ ******************************************************************************/
 
-const HARVESTER_ACTIONS = ['HARVEST','TRANSFER'];
-const UPGRADER_ACTIONS  = ['WITHDRAW','UPGRADE'];
+const brain = require("creep.brain");
+
+const HARVESTER_ACTIONS = ["HARVEST", "TRANSFER"];
+const UPGRADER_ACTIONS = ["WITHDRAW", "UPGRADE"];
 
 function findSource(creep) {
   return creep.pos.findClosestByPath(FIND_SOURCES_ACTIVE);
@@ -15,22 +30,26 @@ function findSource(creep) {
 
 function findDepositTarget(creep) {
   return creep.pos.findClosestByPath(FIND_STRUCTURES, {
-    filter: s => (
-      (s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_EXTENSION) && s.my
-      || s.structureType === STRUCTURE_CONTAINER
-      || s.structureType === STRUCTURE_STORAGE
-    ) && s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+    filter: (s) =>
+      (((s.structureType === STRUCTURE_SPAWN ||
+        s.structureType === STRUCTURE_EXTENSION) &&
+        s.my) ||
+        s.structureType === STRUCTURE_CONTAINER ||
+        s.structureType === STRUCTURE_STORAGE) &&
+      s.store.getFreeCapacity(RESOURCE_ENERGY) > 0,
   });
 }
 
 function findWithdrawSource(creep) {
   // for upgrader: withdraw from storage/spawn/extension/container
   return creep.pos.findClosestByPath(FIND_STRUCTURES, {
-    filter: s => (
-      ((s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_EXTENSION) && s.my)
-      || s.structureType === STRUCTURE_CONTAINER
-      || s.structureType === STRUCTURE_STORAGE
-    ) && s.store.getUsedCapacity(RESOURCE_ENERGY) > 0
+    filter: (s) =>
+      (((s.structureType === STRUCTURE_SPAWN ||
+        s.structureType === STRUCTURE_EXTENSION) &&
+        s.my) ||
+        s.structureType === STRUCTURE_CONTAINER ||
+        s.structureType === STRUCTURE_STORAGE) &&
+      s.store.getUsedCapacity(RESOURCE_ENERGY) > 0,
   });
 }
 
@@ -46,14 +65,14 @@ function computeReward(creep, action, did) {
 function creepState(creep) {
   // state: [hasEnergy, canWork]
   const hasEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0 ? 1 : 0;
-  const canWork   = creep.getActiveBodyparts(WORK) > 0 ? 1 : 0;
+  const canWork = creep.getActiveBodyparts(WORK) > 0 ? 1 : 0;
   return `${hasEnergy}${canWork}`;
 }
 
-module.exports.run = function(creep) {
+module.exports.run = function (creep) {
   // select actions based on role
-  const role    = creep.memory.role;
-  const actions = role === 'harvester' ? HARVESTER_ACTIONS : UPGRADER_ACTIONS;
+  const role = creep.memory.role;
+  const actions = role === "harvester" ? HARVESTER_ACTIONS : UPGRADER_ACTIONS;
 
   // init brain
   if (!creep.memory.brain) {
@@ -64,21 +83,24 @@ module.exports.run = function(creep) {
   const S = creepState(creep);
 
   // determine if action completed
-  const freeCap   = creep.store.getFreeCapacity(RESOURCE_ENERGY);
-  const usedEnergy= creep.store.getUsedCapacity(RESOURCE_ENERGY);
-  let doneHarvest = false, doneTransfer = false;
-  let doneWithdraw = false, doneUpgrade = false;
-  if (actions.includes('HARVEST')) doneHarvest = freeCap === 0;
-  if (actions.includes('TRANSFER')) doneTransfer = usedEnergy === 0;
-  if (actions.includes('WITHDRAW')) doneWithdraw = usedEnergy > 0;
-  if (actions.includes('UPGRADE')) doneUpgrade = usedEnergy === 0;
+  const freeCap = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+  const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
+  let doneHarvest = false,
+    doneTransfer = false;
+  let doneWithdraw = false,
+    doneUpgrade = false;
+  if (actions.includes("HARVEST")) doneHarvest = freeCap === 0;
+  if (actions.includes("TRANSFER")) doneTransfer = usedEnergy === 0;
+  if (actions.includes("WITHDRAW")) doneWithdraw = usedEnergy > 0;
+  if (actions.includes("UPGRADE")) doneUpgrade = usedEnergy === 0;
 
   // select or maintain action
   let action = creep.memory.currentAction;
-  const isDone = (action === 'HARVEST' && doneHarvest)
-               || (action === 'TRANSFER' && doneTransfer)
-               || (action === 'WITHDRAW' && doneWithdraw)
-               || (action === 'UPGRADE' && doneUpgrade);
+  const isDone =
+    (action === "HARVEST" && doneHarvest) ||
+    (action === "TRANSFER" && doneTransfer) ||
+    (action === "WITHDRAW" && doneWithdraw) ||
+    (action === "UPGRADE" && doneUpgrade);
   if (!action || isDone) {
     action = brain.act(S, actions, creep.memory.brain);
     creep.memory.currentAction = action;
@@ -86,7 +108,7 @@ module.exports.run = function(creep) {
 
   // execute action
   let did = false;
-  if (action === 'HARVEST') {
+  if (action === "HARVEST") {
     if (freeCap > 0 && creep.getActiveBodyparts(WORK) > 0) {
       const src = findSource(creep);
       if (src) {
@@ -95,8 +117,7 @@ module.exports.run = function(creep) {
         else if (code === ERR_NOT_IN_RANGE) creep.moveTo(src);
       }
     }
-  }
-  else if (action === 'TRANSFER') {
+  } else if (action === "TRANSFER") {
     if (usedEnergy > 0 && creep.getActiveBodyparts(CARRY) > 0) {
       const tgt = findDepositTarget(creep);
       if (tgt) {
@@ -105,8 +126,7 @@ module.exports.run = function(creep) {
         else if (code === ERR_NOT_IN_RANGE) creep.moveTo(tgt);
       }
     }
-  }
-  else if (action === 'WITHDRAW') {
+  } else if (action === "WITHDRAW") {
     if (freeCap > 0 && creep.getActiveBodyparts(CARRY) > 0) {
       const src = findWithdrawSource(creep);
       if (src) {
@@ -115,8 +135,7 @@ module.exports.run = function(creep) {
         else if (code === ERR_NOT_IN_RANGE) creep.moveTo(src);
       }
     }
-  }
-  else if (action === 'UPGRADE') {
+  } else if (action === "UPGRADE") {
     if (usedEnergy > 0 && creep.getActiveBodyparts(WORK) > 0) {
       const ctrl = findController(creep);
       if (ctrl) {

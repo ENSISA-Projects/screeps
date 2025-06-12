@@ -20,6 +20,7 @@ Set username and password in the .env file (example under) and you're done.
 
 ## Example of .env
 
+```env
 VPS_HOST=***
 VPS_PORT=22
 VPS_USER=debian
@@ -28,6 +29,7 @@ SCREEPS_HOST=21025
 
 USERNAME=***
 PASSWORD=***
+```
 
 ## Deep Q-Learning run
 
@@ -35,6 +37,7 @@ PASSWORD=***
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+python dqn-main.py
 ```
 
 Once train is done (select all the data):
@@ -48,6 +51,7 @@ tensorboard --logdir tb_screeps
 ### Random
 
 LVL 1-2
+
 v1 -> Restrained panel of actions chosen randomly, least advanced.
 v2 -> 33% of spawn rate (more flexible), just another way of coding it sequentially this time.
 LVL 1-3
@@ -56,15 +60,19 @@ v3 -> final version made to revive even if colony suicides, with ratios preventi
 ### QLearning
 
 LVL 1-2
+
 v1 -> Restrained panel of actions chosen from the Q-table, least advanced.
 v2 -> Bad version but lots of utilities functions
 v3 -> Correct version can be trained or evaluated with Memory.eval=True|False
+
 LVL 1-3
+
 v4 -> Final version made to revive even if colony suicides.
 
 ### Genetic
 
 LVL 1-2
+
 v1 -> Basic implementation of the algorithm (perfect to optimize sequences of actions with constraints but too long)
 
 ### Deep

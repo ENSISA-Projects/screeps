@@ -1,25 +1,36 @@
-const SEG_ID      = 0;
+/******************************************************************************
+ *  main.js — hybrid batch / episodic Q-learning colony controller
+ *  ------------------------------------------------------------------------
+ *  • Up to RCL 1, it uses `qlearning.js` (spawn-only decisions).
+ *  • From RCL 2 onward, it switches to `qlearning_builder.js`
+ *    so the brain can choose BUILD/REPAIR actions and richer bodies.
+ *  • Decisions are stored in batches of `BATCH_SIZE` (100 ticks) and learned
+ *    in one shot → faster convergence and fewer calls to RawMemory.
+ *  • Full “freeze” evaluation mode via `Memory.evalMode = true`.
+ *  • Robust progress tracking: logs 1→2, 2→3 timings and stops the program
+ *    automatically once RCL 3 is reached.
+ *  • Auto-infrastructure: roads + extensions when RCL 2 is reached.
+ *  • Graceful wipe/reset handling and compact segment persistence
+ *    (Q-table in segment 0, metrics in segment 1).
+ ******************************************************************************/
+
+const SEG_ID = 0;
 const METRICS_SEG = 1;
-const BATCH_SIZE  = 100;
+const BATCH_SIZE = 100;
 
-
-
-const brain        = require("qlearning");
+const brain = require("qlearning");
 const brainBuilder = require("qlearning_builder");
-const creepLogic   = require("creep");
+const creepLogic = require("creep");
 
 const EVAL = !!Memory.evalMode;
 
-// -----------------------------------------------------------------------------
 // UTILITY FUNCTIONS
-// -----------------------------------------------------------------------------
-
 function generateBodyCombos(parts, maxParts) {
   const combos = [];
   function helper(startIdx, depth, buf) {
-    if (depth === maxParts) { 
-      combos.push(buf.slice()); 
-      return; 
+    if (depth === maxParts) {
+      combos.push(buf.slice());
+      return;
     }
     for (let i = startIdx; i < parts.length; i++) {
       buf.push(parts[i]);
@@ -32,25 +43,26 @@ function generateBodyCombos(parts, maxParts) {
 }
 
 function roomExistsAfterReset() {
-  const myRooms = Object.values(Game.rooms).filter(r => r.controller && r.controller.my);
+  const myRooms = Object.values(Game.rooms).filter(
+    (r) => r.controller && r.controller.my
+  );
   if (!myRooms.length) return false;
   const r = myRooms[0];
   return r.controller.level === 1 && _.isEmpty(Game.creeps);
 }
 
 function state(room) {
-  const energyStatus   = room.energyAvailable >= 200 ? 1 : 0;
-  const roleCount      = _.countBy(Game.creeps, c => c.memory.role);
+  const energyStatus = room.energyAvailable >= 200 ? 1 : 0;
+  const roleCount = _.countBy(Game.creeps, (c) => c.memory.role);
   const harvesterCount = roleCount.harvester || 0;
-  const upgraderCount  = roleCount.upgrader  || 0;
-  const builderCount   = roleCount.builder   || 0;
+  const upgraderCount = roleCount.upgrader || 0;
+  const builderCount = roleCount.builder || 0;
   return `${energyStatus}|${harvesterCount}|${upgraderCount}|${builderCount}`;
 }
 
-
 function calculateReward(room, action) {
   let reward = -1;
-  const roleCount = _.countBy(Game.creeps, c => c.memory.role);
+  const roleCount = _.countBy(Game.creeps, (c) => c.memory.role);
   const harvesterCount = roleCount.harvester || 0;
   const upgraderCount = roleCount.upgrader || 0;
   const builderCount = roleCount.builder || 0;
@@ -60,47 +72,51 @@ function calculateReward(room, action) {
       const partCosts = { [WORK]: 100, [CARRY]: 50, [MOVE]: 50 };
       return cost + partCosts[part];
     }, 0);
-    
+
     if (room.energyAvailable >= bodyCost) {
       reward += 5;
-      const workParts = action.body.filter(part => part === WORK).length;
+      const workParts = action.body.filter((part) => part === WORK).length;
       reward += workParts * 2;
-      
-      // Pénaliser les builders si pas assez de harvesters
+
+      // Penalize builders if not enough harvesters
       if (action.role === "builder") {
         if (harvesterCount === 0) {
-          reward -= 15; // Forte pénalité si aucun harvester
+          reward -= 15; // Strong penalty if no harvester
           console.log("[PENALTY] Builder spawn with 0 harvesters: -15");
         } else if (harvesterCount < 2 && room.controller.level >= 2) {
-          reward -= 8; // Pénalité modérée si pas assez de harvesters au RCL2+
-          console.log("[PENALTY] Builder spawn with insufficient harvesters: -8");
+          reward -= 8; // Moderate penalty if not enough harvesters at RCL2+
+          console.log(
+            "[PENALTY] Builder spawn with insufficient harvesters: -8"
+          );
+        } else if (builderCount < 1 && room.controller.level >= 2) {
+          reward -= 100;
         }
-        else if (builderCount <1  && room.controller.level >= 2){
-          reward -=100
-        }
-        
       }
-      
-      // Bonus pour équilibrer les rôles
+
+      // Bonus to balance roles
       if (action.role === "harvester" && harvesterCount < 2) {
-        reward += 5; // Bonus pour spawner des harvesters quand on en manque
+        reward += 5; // Bonus to spawn harvesters when needed
         console.log("[BONUS] Harvester spawn when needed: +5");
       }
-      
-      if (action.role === "upgrader" && upgraderCount === 0 && harvesterCount >= 1) {
-        reward += 3; // Bonus pour le premier upgrader si on a déjà un harvester
+
+      if (
+        action.role === "upgrader" &&
+        upgraderCount === 0 &&
+        harvesterCount >= 1
+      ) {
+        reward += 3; // Bonus to the first upgrader if we already have a harvester
         console.log("[BONUS] First upgrader spawn: +3");
       }
     }
   }
-  
+
   if (action.type === "WAIT" && room.energyAvailable >= 200) {
     reward -= 1;
   }
 
-  // Pénalité si on a des builders mais pas d'économie stable
+  // Penalty if we have builders but no stable economy
   if (builderCount > 0 && harvesterCount === 0) {
-    reward -= 5; // Pénalité continue si builders sans harvesters
+    reward -= 5; // Continuous penalty if builders without harvesters
   }
 
   if (room.controller.progress > (Memory.lastProgress || 0)) {
@@ -111,17 +127,13 @@ function calculateReward(room, action) {
   return reward;
 }
 
-
-// -----------------------------------------------------------------------------
 // MEMORY INITIALIZATION
-// -----------------------------------------------------------------------------
-
 function ensureEvaluation() {
   if (!Memory.evaluation) {
     Memory.evaluation = {
       startTick: Game.time,
       actionsTaken: 0,
-      history: []
+      history: [],
     };
   }
 }
@@ -131,7 +143,7 @@ function ensureBatchMemory() {
     Memory.batchLearning = {
       decisions: [],
       batchCount: 0,
-      totalBatches: 0
+      totalBatches: 0,
     };
   }
 }
@@ -144,102 +156,126 @@ function ensureProgressTracking() {
       rcl3StartTick: null,
       rcl1to2Reported: false,
       rcl2to3Reported: false,
-      lastReportedLevel: 1
+      lastReportedLevel: 1,
     };
   }
 }
 
-// -----------------------------------------------------------------------------
 // BATCH LEARNING
-// -----------------------------------------------------------------------------
-
 function calculateBatchRewards(decisions) {
   const rewards = [];
-  
+
   for (let i = 0; i < decisions.length; i++) {
     const decision = decisions[i];
     let reward = decision.immediateReward;
-    
+
     const startProgress = decision.controllerProgress;
-    const endProgress = i < decisions.length - 1 ? decisions[i + 1].controllerProgress : decision.controllerProgress;
-    
+    const endProgress =
+      i < decisions.length - 1
+        ? decisions[i + 1].controllerProgress
+        : decision.controllerProgress;
+
     if (endProgress > startProgress) {
       reward += (endProgress - startProgress) * 2;
     }
-    
-    const totalCreeps = (decision.harvesterCount || 0) + (decision.upgraderCount || 0) + (decision.builderCount || 0);
+
+    const totalCreeps =
+      (decision.harvesterCount || 0) +
+      (decision.upgraderCount || 0) +
+      (decision.builderCount || 0);
     if (totalCreeps > 0 && totalCreeps <= 6) {
       reward += 1;
     }
-    
+
     if (totalCreeps > 8) {
       reward -= 2;
     }
-    
+
     rewards.push(reward);
   }
-  
+
   return rewards;
 }
 
 function processBatch() {
   const decisions = Memory.batchLearning.decisions;
   if (decisions.length < BATCH_SIZE) return;
-  
+
   const batchRewards = calculateBatchRewards(decisions);
   const useBuilderBrain = decisions[0].controllerLevel >= 2;
   const activeBrain = useBuilderBrain ? brainBuilder : brain;
-  
+
   let totalReward = 0;
   for (let i = 0; i < decisions.length; i++) {
     const decision = decisions[i];
     const reward = batchRewards[i];
-    const nextState = i < decisions.length - 1 ? decisions[i + 1].state : decision.state;
-    
+    const nextState =
+      i < decisions.length - 1 ? decisions[i + 1].state : decision.state;
+
     if (!EVAL) {
-      activeBrain.learn(decision.state, decision.action, reward, nextState, decision.availableActions);
+      activeBrain.learn(
+        decision.state,
+        decision.action,
+        reward,
+        nextState,
+        decision.availableActions
+      );
     }
-    
+
     totalReward += reward;
   }
-  
+
   const avgReward = totalReward / decisions.length;
   Memory.batchLearning.batchCount++;
   Memory.batchLearning.totalBatches++;
-  
+
   if (Memory.batchLearning.totalBatches % 10 === 0) {
-    console.log(`[BATCH] ${Memory.batchLearning.totalBatches} | Avg Reward: ${avgReward.toFixed(2)} | Episodes: ${(Memory.brain.stats.episodes) || 0}`);
+    console.log(
+      `[BATCH] ${
+        Memory.batchLearning.totalBatches
+      } | Avg Reward: ${avgReward.toFixed(2)} | Episodes: ${
+        Memory.brain.stats.episodes || 0
+      }`
+    );
   }
-  
+
   Memory.batchLearning.decisions = [];
 }
 
-// -----------------------------------------------------------------------------
 // INFRASTRUCTURE MANAGEMENT
-// -----------------------------------------------------------------------------
-
 function buildInfrastructure(room) {
   if (Memory.builtInfra) return;
-  
+
   const spawn = Object.values(Game.spawns)[0];
   const controller = room.controller;
   const sources = room.find(FIND_SOURCES);
 
   // Build extensions
-  const positions = [[2,0], [-2,0]];
+  const positions = [
+    [2, 0],
+    [-2, 0],
+  ];
   for (const [dx, dy] of positions) {
-    room.createConstructionSite(spawn.pos.x + dx, spawn.pos.y + dy, STRUCTURE_EXTENSION);
+    room.createConstructionSite(
+      spawn.pos.x + dx,
+      spawn.pos.y + dy,
+      STRUCTURE_EXTENSION
+    );
   }
 
   // Build roads to controller
-  const pathToCtrl = room.findPath(spawn.pos, controller.pos, { ignoreCreeps: true });
+  const pathToCtrl = room.findPath(spawn.pos, controller.pos, {
+    ignoreCreeps: true,
+  });
   for (const step of pathToCtrl) {
     room.createConstructionSite(step.x, step.y, STRUCTURE_ROAD);
   }
 
   // Build roads to sources
   if (sources.length > 0) {
-    const pathToSrc = room.findPath(spawn.pos, sources[0].pos, { ignoreCreeps: true });
+    const pathToSrc = room.findPath(spawn.pos, sources[0].pos, {
+      ignoreCreeps: true,
+    });
     for (const step of pathToSrc) {
       room.createConstructionSite(step.x, step.y, STRUCTURE_ROAD);
     }
@@ -250,34 +286,33 @@ function buildInfrastructure(room) {
 
 function cleanupRoom(room) {
   console.log("[CLEANUP] Removing structures and construction sites...");
-  
+
   // Remove all construction sites
   const constructionSites = room.find(FIND_CONSTRUCTION_SITES);
   for (const site of constructionSites) {
     site.remove();
   }
-  
+
   // Destroy all structures except spawn and controller
   const structures = room.find(FIND_STRUCTURES);
   for (const structure of structures) {
-    if (structure.structureType !== STRUCTURE_SPAWN && 
-        structure.structureType !== STRUCTURE_CONTROLLER) {
+    if (
+      structure.structureType !== STRUCTURE_SPAWN &&
+      structure.structureType !== STRUCTURE_CONTROLLER
+    ) {
       structure.destroy();
     }
   }
-  
+
   // Remove all creeps
   for (const name in Game.creeps) {
     Game.creeps[name].suicide();
   }
-  
+
   console.log("[CLEANUP] Room cleaned successfully");
 }
 
-// -----------------------------------------------------------------------------
 // MAIN LOOP
-// -----------------------------------------------------------------------------
-
 module.exports.loop = function () {
   const room = Game.rooms[Object.keys(Game.rooms)[0]];
   if (!room) return;
@@ -290,22 +325,28 @@ module.exports.loop = function () {
   ensureBatchMemory();
   ensureProgressTracking();
 
-  // Check for RCL3 completion (more robust check)
+  // Check for RCL3 completion and force stop at RCL3 regardless of previous state
   const currentLevel = room.controller.level;
-  // Force stop at RCL3 regardless of previous state
   if (currentLevel >= 3 && !Memory.waitingForReset) {
-    console.log(`[RCL3 DETECTED] Current level: ${currentLevel}, stopping program`);
-    
+    console.log(
+      `[RCL3 DETECTED] Current level: ${currentLevel}, stopping program`
+    );
+
     // Calculate times if not already done
     if (!Memory.progressTracking.rcl2to3Reported) {
       Memory.progressTracking.rcl3StartTick = Game.time;
-      const ticksToRcl2 = Memory.progressTracking.rcl2StartTick ? 
-        (Memory.progressTracking.rcl2StartTick - Memory.progressTracking.rcl1StartTick) : 0;
-      const ticksToRcl3 = Memory.progressTracking.rcl2StartTick ? 
-        (Game.time - Memory.progressTracking.rcl2StartTick) : 0;
-      
-      console.log(`[RCL] Final progression - 1→2: ${ticksToRcl2} ticks, 2→3: ${ticksToRcl3} ticks`);
-      
+      const ticksToRcl2 = Memory.progressTracking.rcl2StartTick
+        ? Memory.progressTracking.rcl2StartTick -
+          Memory.progressTracking.rcl1StartTick
+        : 0;
+      const ticksToRcl3 = Memory.progressTracking.rcl2StartTick
+        ? Game.time - Memory.progressTracking.rcl2StartTick
+        : 0;
+
+      console.log(
+        `[RCL] Final progression - 1→2: ${ticksToRcl2} ticks, 2→3: ${ticksToRcl3} ticks`
+      );
+
       // Save final metrics
       const finalMetrics = {
         ticks: Game.time - Memory.progressTracking.rcl1StartTick,
@@ -314,20 +355,20 @@ module.exports.loop = function () {
         actions: Memory.evaluation.actionsTaken || 0,
         batches: Memory.batchLearning.totalBatches || 0,
         episodes: Memory.brain.stats.episodes || 0,
-        avgReward: Memory.brain.stats.avgReward || 0
+        avgReward: Memory.brain.stats.avgReward || 0,
       };
-      
+
       console.log("[FINAL METRICS]", JSON.stringify(finalMetrics));
-      
+
       // Save to segments
       RawMemory.setActiveSegments([METRICS_SEG]);
       RawMemory.segments[METRICS_SEG] = JSON.stringify(finalMetrics);
       RawMemory.setActiveSegments([]);
     }
-    
+
     // Cleanup and prepare for reset
     cleanupRoom(room);
-    
+
     // Reset metrics but keep Q-table
     delete Memory.evaluation;
     delete Memory.batchLearning;
@@ -336,11 +377,11 @@ module.exports.loop = function () {
     delete Memory.lastProgress;
     delete Memory.epochTick;
     Memory.waitingForReset = true;
-    
+
     console.log("[RCL3] Program completed. Waiting for manual reset...");
     return;
   }
-  
+
   // Normal RCL progress tracking for levels 2
   if (currentLevel !== Memory.progressTracking.lastReportedLevel) {
     if (currentLevel === 2 && !Memory.progressTracking.rcl1to2Reported) {
@@ -356,21 +397,18 @@ module.exports.loop = function () {
   if (Memory.waitingForReset) {
     return;
   }
-  
- 
-
 
   // Handle reset after wipe
   if (Memory.wantReset && roomExistsAfterReset()) {
     delete Memory.wantReset;
     delete Memory.waitingForReset;
     Memory.epochTick = 0;
-    
+
     // Reset batch learning and progress tracking
     Memory.batchLearning = {
       decisions: [],
       batchCount: 0,
-      totalBatches: 0
+      totalBatches: 0,
     };
     Memory.progressTracking = {
       rcl1StartTick: Game.time,
@@ -378,9 +416,9 @@ module.exports.loop = function () {
       rcl3StartTick: null,
       rcl1to2Reported: false,
       rcl2to3Reported: false,
-      lastReportedLevel: 1
+      lastReportedLevel: 1,
     };
-    
+
     console.log("[RESET] New epoch started");
     activeBrain.resetEpisode();
     return;
@@ -412,38 +450,38 @@ module.exports.loop = function () {
     if (Memory.batchLearning.decisions.length > 0) {
       processBatch();
     }
-    
+
     // Save Q-table (only essential data)
     RawMemory.setActiveSegments([SEG_ID]);
     const compactBrain = {
       qTable: Memory.brain.qTable,
       stats: {
         episodes: Memory.brain.stats.episodes,
-        avgReward: Memory.brain.stats.avgReward
-      }
+        avgReward: Memory.brain.stats.avgReward,
+      },
     };
     RawMemory.segments[SEG_ID] = JSON.stringify({ brain: compactBrain });
     RawMemory.setActiveSegments([]);
-    
+
     console.log("[SAVE] Q-table saved, preparing for reset");
     Memory.wantReset = true;
     return;
   }
   // Define available actions based on RCL
   let ACTIONS = [];
-  
+
   if (room.controller.level === 1) {
     const basicBody = [WORK, CARRY, MOVE];
     const ROLES = ["harvester", "upgrader"];
-    ACTIONS = ROLES.map(role => ({ type: "SPAWN", role, body: basicBody }));
+    ACTIONS = ROLES.map((role) => ({ type: "SPAWN", role, body: basicBody }));
   } else {
     const baseParts = [WORK, CARRY, MOVE];
     const additionalParts = [WORK, CARRY, MOVE];
     const additionalCombos = generateBodyCombos(additionalParts, 2);
-    
-    const ALL_BODIES = additionalCombos.map(combo => baseParts.concat(combo));
+
+    const ALL_BODIES = additionalCombos.map((combo) => baseParts.concat(combo));
     const ROLES = ["harvester", "upgrader", "builder"];
-    
+
     ACTIONS = [];
     for (const body of ALL_BODIES) {
       for (const role of ROLES) {
@@ -451,7 +489,7 @@ module.exports.loop = function () {
       }
     }
   }
-  
+
   ACTIONS.push({ type: "WAIT" });
 
   // AI Decision Making
@@ -461,13 +499,13 @@ module.exports.loop = function () {
 
   // Execute action
   if (action.type === "SPAWN") {
-    const spawn = _.find(Game.spawns, s => !s.spawning);
+    const spawn = _.find(Game.spawns, (s) => !s.spawning);
     if (spawn) {
       const bodyCost = action.body.reduce((cost, part) => {
         const partCosts = { [WORK]: 100, [CARRY]: 50, [MOVE]: 50 };
         return cost + partCosts[part];
       }, 0);
-      
+
       if (room.energyAvailable >= bodyCost) {
         spawn.spawnCreep(
           action.body,
@@ -481,7 +519,7 @@ module.exports.loop = function () {
   const immediateReward = calculateReward(room, action);
 
   // Record decision for batch learning
-  const roleCount = _.countBy(Game.creeps, c => c.memory.role);
+  const roleCount = _.countBy(Game.creeps, (c) => c.memory.role);
   const decision = {
     tick: Game.time,
     state: currentState,
@@ -493,13 +531,12 @@ module.exports.loop = function () {
     energyAvailable: room.energyAvailable,
     harvesterCount: roleCount.harvester || 0,
     upgraderCount: roleCount.upgrader || 0,
-    builderCount: roleCount.builder || 0
+    builderCount: roleCount.builder || 0,
   };
-
 
   if (!EVAL) {
     Memory.batchLearning.decisions.push(decision);
-    
+
     if (Memory.batchLearning.decisions.length >= BATCH_SIZE) {
       processBatch();
     }
@@ -508,12 +545,17 @@ module.exports.loop = function () {
   // Manage creeps
   for (const name in Game.creeps) {
     const creep = Game.creeps[name];
-    if (!creep.getActiveBodyparts(WORK) ||
-        !creep.getActiveBodyparts(CARRY) ||
-        !creep.getActiveBodyparts(MOVE)) {
+    if (
+      !creep.getActiveBodyparts(WORK) ||
+      !creep.getActiveBodyparts(CARRY) ||
+      !creep.getActiveBodyparts(MOVE)
+    ) {
       creep.suicide();
       if (!EVAL && Memory.batchLearning.decisions.length > 0) {
-        const lastDecision = Memory.batchLearning.decisions[Memory.batchLearning.decisions.length - 1];
+        const lastDecision =
+          Memory.batchLearning.decisions[
+            Memory.batchLearning.decisions.length - 1
+          ];
         lastDecision.immediateReward -= 50;
       }
       continue;
@@ -523,7 +565,7 @@ module.exports.loop = function () {
 
   activeBrain.recordStep(currentState, action, immediateReward);
 
-  // Save history periodically (much less frequent)
+  // Save history periodically
   if ((Memory.epochTick || 0) % 500 === 0) {
     // Keep only essential data
     if (!Memory.evaluation.history) Memory.evaluation.history = [];
@@ -531,9 +573,9 @@ module.exports.loop = function () {
       t: Game.time,
       lvl: room.controller.level,
       prog: Math.floor(room.controller.progress / 1000), // Reduce precision
-      batch: Memory.batchLearning.totalBatches
+      batch: Memory.batchLearning.totalBatches,
     });
-    
+
     // Limit history size
     if (Memory.evaluation.history.length > 20) {
       Memory.evaluation.history = Memory.evaluation.history.slice(-10);

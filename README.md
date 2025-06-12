@@ -12,12 +12,12 @@ TODO : Improvement possible by replacing the macro with API calls.
 
 ## Launch Deep q-learning
 
-Setup the server (setup-server -> Set your steam API KEY in config.yml -> sudo docker compose up -d, then you can connect to the game cli via sudo docker compose exec screeps screeps-launcher cli, to run system.resetAllData() or other commands.),  
+Setup the server (setup-server -> Set your steam API KEY in config.yml -> sudo docker compose up -d, then you can connect to the game cli via : sudo docker compose exec screeps screeps-launcher cli, to run system.resetAllData() or other commands.),  
 start the game and connect yourself to the server.  
 Private server -> VPS_HOST (ip) -> SCREEPS_HOST and save it for later, then set your USERNAME.  
 Also, copy the js files in the game and place the spawner in room W7N7.  
 Connect yourself to the endpoint VPS_HOST:21025/authmod/password/ then set your PASSWORD (connect to steam).  
-Set username and password in the .env file (example under) and you're done.  
+Set username and password in the .env file (example under must place it in the same folder than dqn-main) and you're done.  
 
 ## Example of .env
 

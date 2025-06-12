@@ -1,11 +1,24 @@
-// qlearning_builder.js
+/******************************************************************************
+ *  qlearning_builder.js — episodic Q-learning brain for “builder” creeps
+ *  ---------------------------------------------------------------------
+ *  • Each builder uses a *global* Q-table stored in `Memory.builderBrain.q`.
+ *  • Actions can be complex objects (target IDs, body shapes …), so we hash
+ *    them with `JSON.stringify` and use that hash as the key.
+ *  • The agent collects a short trajectory (≤ 10 steps) and, at the end of the
+ *    episode, walks it **backwards** to apply TD(0):
+ *
+ *        Q(s,a) ← Q(s,a) + α · ( r + γ · maxₐ′Q(s′,a′) − Q(s,a) )
+ *
+ *  • Exploration ε decays exponentially from 1.0 → 0.05.
+ *  • A *frozen* flag lets you disable learning and force greedy play.
+ ******************************************************************************/
 
 const EPSILON_START = 1.0;
-const EPSILON_END   = 0.05;
+const EPSILON_END = 0.05;
 const EPSILON_DECAY = 0.001;
-const GAMMA         = 0.9;
-const ALPHA         = 0.1;
-const MAX_EPISODES  = 10000;
+const GAMMA = 0.9;
+const ALPHA = 0.1;
+const MAX_EPISODES = 10000;
 
 function hash(action) {
   return JSON.stringify(action);
@@ -34,8 +47,8 @@ if (!Memory.builderBrain) {
     epsilon: EPSILON_START,
     stats: {
       avgReward: 0,
-      episodes: 0
-    }
+      episodes: 0,
+    },
   };
 }
 
@@ -71,7 +84,7 @@ module.exports = {
 
   recordStep(state, action, reward) {
     currentTrajectory.push({ state, action, reward });
-    return currentTrajectory.length > 10; // ou selon une autre logique
+    return currentTrajectory.length > 10;
   },
 
   learnEpisode(nextState) {
@@ -92,19 +105,25 @@ module.exports = {
       q[state][key] += ALPHA * (reward + GAMMA * maxQNext - q[state][key]);
     }
 
-    const totalReward = currentTrajectory.reduce((sum, step) => sum + step.reward, 0);
+    const totalReward = currentTrajectory.reduce(
+      (sum, step) => sum + step.reward,
+      0
+    );
     currentTrajectory = [];
 
     const brain = Memory.builderBrain;
     brain.episode++;
     brain.stats.episodes++;
-    brain.stats.avgReward = (brain.stats.avgReward * 0.9) + (totalReward * 0.1);
-    brain.epsilon = Math.max(EPSILON_END, brain.epsilon * Math.exp(-EPSILON_DECAY * brain.episode));
+    brain.stats.avgReward = brain.stats.avgReward * 0.9 + totalReward * 0.1;
+    brain.epsilon = Math.max(
+      EPSILON_END,
+      brain.epsilon * Math.exp(-EPSILON_DECAY * brain.episode)
+    );
 
     return {
       episode: brain.episode,
       avgReward: brain.stats.avgReward,
-      epsilon: brain.epsilon
+      epsilon: brain.epsilon,
     };
   },
 
@@ -124,5 +143,5 @@ module.exports = {
     }
 
     q[state][key] += ALPHA * (reward + GAMMA * maxQNext - q[state][key]);
-  }
+  },
 };

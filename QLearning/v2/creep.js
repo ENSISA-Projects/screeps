@@ -39,7 +39,7 @@ function findDepositTarget(creep) {
 }
 
 function findWithdrawSource(creep) {
-  // for upgrader: withdraw from storage/spawn/extension/container
+  // Upgrader withdraw from storage|spawn|extension|container
   return creep.pos.findClosestByPath(FIND_STRUCTURES, {
     filter: (s) =>
       (((s.structureType === STRUCTURE_SPAWN ||
@@ -56,38 +56,31 @@ function findController(creep) {
 }
 
 function computeReward(creep, action, did, prevState, currentState) {
-  let reward = did ? 1 : -1; // Base reward
+  // Base reward
+  let reward = did ? 1 : -1;
 
   // Specific rewards based on action
   if (action === "HARVEST") {
-    // Bonus for harvesting
     const prevEnergy = parseInt(prevState.charAt(0));
     const currEnergy = parseInt(currentState.charAt(0));
     if (currEnergy > prevEnergy) reward += 1;
-
-    // Malus if nothing to harvest
+    // - if nothing to harvest
     if (prevEnergy === 1 && action === "HARVEST") reward -= 2;
   } else if (action === "TRANSFER") {
-    // Bonus for successful transfer (empty carry)
     const prevEnergy = parseInt(prevState.charAt(0));
     const currEnergy = parseInt(currentState.charAt(0));
     if (prevEnergy === 1 && currEnergy === 0) reward += 2;
-
-    // Malus if nothing to transfer
+    // - if nothing to transfer
     if (prevEnergy === 0 && action === "TRANSFER") reward -= 2;
   } else if (action === "WITHDRAW") {
-    // Bonus for energy retrieval
     const prevEnergy = parseInt(prevState.charAt(0));
     const currEnergy = parseInt(currentState.charAt(0));
     if (prevEnergy === 0 && currEnergy === 1) reward += 2;
-
-    // Malus if already full
+    // - if already full
     if (prevEnergy === 1 && action === "WITHDRAW") reward -= 2;
   } else if (action === "UPGRADE") {
-    // Bonus for upgrading the controller
     if (did) reward += 1;
-
-    // Malus if no energy
+    // - if no energy
     const energy = parseInt(currentState.charAt(0));
     if (energy === 0 && action === "UPGRADE") reward -= 2;
   }
@@ -95,8 +88,8 @@ function computeReward(creep, action, did, prevState, currentState) {
   return reward;
 }
 
+// States [hasEnergy, canWork, nearSource, nearTarget]
 function creepState(creep) {
-  // state: [hasEnergy, canWork, nearSource, nearTarget]
   const hasEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0 ? 1 : 0;
   const canWork = creep.getActiveBodyparts(WORK) > 0 ? 1 : 0;
   const nearSource = creep.pos.findInRange(FIND_SOURCES, 3).length > 0 ? 1 : 0;
@@ -114,11 +107,11 @@ function creepState(creep) {
 }
 
 module.exports.run = function (creep) {
-  // select actions based on role
+  // Select actions based on role
   const role = creep.memory.role;
   const actions = role === "harvester" ? HARVESTER_ACTIONS : UPGRADER_ACTIONS;
 
-  // init brain & episode
+  // Init brain & episode
   if (!creep.memory.brain) {
     creep.memory.brain = {
       q: {},
@@ -139,12 +132,12 @@ module.exports.run = function (creep) {
     };
   }
 
-  // Calcul of contextual reward 
+  // Calculate contextual reward
   const currentState = creepState(creep);
   const prevState = creep.memory.prevState || currentState;
   creep.memory.prevState = currentState;
 
-  // determine if action completed
+  // Determine if action completed
   const freeCap = creep.store.getFreeCapacity(RESOURCE_ENERGY);
   const usedEnergy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
   let doneHarvest = false,
@@ -156,7 +149,7 @@ module.exports.run = function (creep) {
   if (actions.includes("WITHDRAW")) doneWithdraw = usedEnergy > 0;
   if (actions.includes("UPGRADE")) doneUpgrade = usedEnergy === 0;
 
-  // select or maintain action
+  // Select or maintain action
   let action = creep.memory.currentAction;
   const isDone =
     (action === "HARVEST" && doneHarvest) ||
@@ -165,23 +158,23 @@ module.exports.run = function (creep) {
     (action === "UPGRADE" && doneUpgrade);
 
   if (!action || isDone) {
-    // Enregistrer l'état actuel dans l'épisode
+    // Save current state in episode
     creep.memory.episode.states[creep.memory.episode.step] = currentState;
 
-    // Choisir une nouvelle action
+    // Choose a new action
     action = brainLogic.act(currentState, actions, creep.memory.brain);
     creep.memory.currentAction = action;
 
-    // Si l'action précédente est terminée, enregistrer la récompense finale
+    // If previous action is done, save final reward
     if (creep.memory.lastAction && isDone) {
-      const finalReward = 2; // Récompense bonus pour avoir complété une action
+      const finalReward = 2;
       recordReward(creep, creep.memory.lastAction, finalReward);
     }
 
     creep.memory.lastAction = action;
   }
 
-  // execute action
+  // Execute action
   let did = false;
   if (action === "HARVEST") {
     if (freeCap > 0 && creep.getActiveBodyparts(WORK) > 0) {
@@ -225,16 +218,16 @@ module.exports.run = function (creep) {
     }
   }
 
-  // Calcul et enregistrement de la récompense
+  // Calculate and record reward
   const reward = computeReward(creep, action, did, prevState, currentState);
   const episodeComplete = recordStep(creep, action, reward);
 
-  // Si l'épisode est complet, apprendre
+  // If episode is complete, learn
   if (episodeComplete) {
     learnEpisode(creep, actions);
   }
 
-  // clear on done
+  // Clear on done
   if (isDone) delete creep.memory.currentAction;
   return did;
 };
@@ -243,17 +236,17 @@ function recordStep(creep, action, reward) {
   const episode = creep.memory.episode;
   const step = episode.step;
 
-  // Enregistrer action et récompense
+  // Save action and reward
   episode.actions[step] = action;
   episode.rewards[step] = reward;
   episode.step++;
 
-  // Vérifier si l'épisode est complet
+  // Check if episode is complete
   return episode.step >= EPISODE_LENGTH;
 }
 
 function recordReward(creep, action, reward) {
-  // Ajouter une récompense supplémentaire à la dernière action
+  // Add extra reward for last action
   const episode = creep.memory.episode;
   const lastIdx = Math.max(0, episode.step - 1);
 
@@ -267,20 +260,19 @@ function learnEpisode(creep, actions) {
   const episode = creep.memory.episode;
   const currentState = creepState(creep);
 
-  // Apprentissage depuis la fin vers le début (backward view)
+  // Learning from the end to the start (backward view)
   for (let i = episode.step - 1; i >= 0; i--) {
     const s = episode.states[i];
     const a = episode.actions[i];
     const r = episode.rewards[i];
 
-    // État suivant est soit le suivant dans l'épisode, soit l'état actuel
+    // Next state is either the next one in the episode, or the current state
     const s2 = i === episode.step - 1 ? currentState : episode.states[i + 1];
 
-    // Q-learning standard
     brainLogic.learn(s, a, r, s2, actions, brain);
   }
 
-  // Réinitialiser l'épisode pour le prochain cycle
+  // Reset episode for next cycle
   creep.memory.episode = {
     states: [],
     actions: [],
@@ -303,15 +295,15 @@ function learnEpisode(creep, actions) {
   stats.episodes++;
   stats.totalReward += totalReward;
 
-  // Garder un historique des récompenses récentes
+  // Keep track of recent rewards
   stats.recentRewards.push(totalReward);
   if (stats.recentRewards.length > 20) stats.recentRewards.shift();
 
-  // Ajuster epsilon en fonction des performances récentes
+  // Adjust epsilon based on recent performance
   if (stats.episodes % 10 === 0 && stats.recentRewards.length >= 5) {
     const avgReward = _.sum(stats.recentRewards) / stats.recentRewards.length;
 
-    // Si récompenses stables ou décroissantes, augmenter l'exploration
+    // If rewards are stable or decreasing, increase exploration
     if (avgReward < 0 && brain.epsilon < 0.4) {
       brain.epsilon = Math.min(0.5, brain.epsilon * 1.1);
       console.log(
@@ -321,10 +313,10 @@ function learnEpisode(creep, actions) {
       );
     }
 
-    // Afficher les statistiques
+    // Show stats
     console.log(
-      `[CREEP:${creep.memory.role}] ${stats.episodes} épisodes | ` +
-        `Reward Moy: ${avgReward.toFixed(2)} | ε: ${brain.epsilon.toFixed(
+      `[CREEP:${creep.memory.role}] ${stats.episodes} episodes | ` +
+        `Avg Reward: ${avgReward.toFixed(2)} | ε: ${brain.epsilon.toFixed(
           2
         )} | ` +
         `|Q|: ${Object.keys(brain.q).length}`

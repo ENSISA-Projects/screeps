@@ -7,8 +7,7 @@
  *      are part of the action space, for both harvesters and upgraders.
  *    • **Evaluation mode.**  Set `Memory.evalMode = true` in console to freeze
  *      the Q-table and run the colony greedily for benchmarking.
- *    • **Epoch control.**  One epoch lasts `EPOCH_TICKS` (6 000) ticks or ends
- *      as soon as the room reaches RCL 2, after which the segment is flushed
+ *    • **Epoch control.**  Ends as soon as the room reaches RCL 2, after which the segment is flushed
  *      and a reset is requested.
  *    • **Dual-segment storage.**  Segment 0 stores the Q-table, segment 1
  *      stores detailed metrics for later analysis.
@@ -17,30 +16,24 @@
  *      malformed creeps, per-episode learning in the brain helper.
  ******************************************************************************/
 
-
-const SEG_ID      = 0;
+const SEG_ID = 0;
 const METRICS_SEG = 1;
-const EPOCH_TICKS = 6000;
-const SAVE_EACH   = 100;
+const SAVE_EACH = 100;
 
-/**
- * Activez/désactivez le mode d’évaluation depuis la console :
- *   Memory.evalMode = true;   // fige la Q-table, aucune mise à jour
- *   Memory.evalMode = false;  // réactive l’apprentissage
- */
-const EVAL = !!Memory.evalMode;          // ← flag runtime (true = évaluation)
+const EVAL = !!Memory.evalMode;
 
-// -----------------------------------------------------------------------------
-// Génération de toutes les combinaisons exactes de 3 parties de corps
-// -----------------------------------------------------------------------------
+// Generate every combinations of 3-part bodies from {WORK,CARRY,MOVE}
 function generateBodyCombos(parts, maxParts) {
   const combos = [];
 
   function helper(startIdx, depth, buf) {
-    if (depth === maxParts) { combos.push(buf.slice()); return; }
+    if (depth === maxParts) {
+      combos.push(buf.slice());
+      return;
+    }
     for (let i = startIdx; i < parts.length; i++) {
       buf.push(parts[i]);
-      helper(i, depth + 1, buf);   // i (pas i+1) ⇒ répétition autorisée
+      helper(i, depth + 1, buf); // repetition authorized
       buf.pop();
     }
   }
@@ -49,16 +42,14 @@ function generateBodyCombos(parts, maxParts) {
 }
 
 const ALL_BODIES = generateBodyCombos([WORK, CARRY, MOVE], 3);
-const brain      = require("qlearning");
+const brain = require("qlearning");
 const creepLogic = require("creep");
 
-// Signale au cerveau si l’apprentissage doit être gelé
+// Signal if learning should be frozen
 brain.setFrozen(EVAL);
 
-// -----------------------------------------------------------------------------
-// Actions possibles (SPAWN + WAIT)
-// -----------------------------------------------------------------------------
-const ROLES   = ["harvester", "upgrader"];
+// Define roles and actions
+const ROLES = ["harvester", "upgrader"];
 const ACTIONS = [];
 for (const body of ALL_BODIES) {
   for (const role of ROLES) {
@@ -67,41 +58,46 @@ for (const body of ALL_BODIES) {
 }
 ACTIONS.push({ type: "WAIT" });
 
-// -----------------------------------------------------------------------------
-// Fonctions utilitaires diverses
-// -----------------------------------------------------------------------------
+// Utility function
 function roomExistsAfterReset() {
-  const myRooms = Object.values(Game.rooms).filter(r => r.controller && r.controller.my);
+  const myRooms = Object.values(Game.rooms).filter(
+    (r) => r.controller && r.controller.my
+  );
   if (!myRooms.length) return false;
   const r = myRooms[0];
   return r.controller.level === 1 && _.isEmpty(Game.creeps);
 }
 
-
-// Encodage d’état « énergie disponible | nb harvester | nb upgrader »
+// Encode states « energy available | nb harvester | nb upgrader »
 function state(room) {
-  const energyStatus   = room.energyAvailable >= 200 ? 1 : 0;
-  const harvesterCount = _.filter(Game.creeps, c => c.memory.role === "harvester").length;
-  const upgraderCount  = _.filter(Game.creeps, c => c.memory.role === "upgrader").length;
+  const energyStatus = room.energyAvailable >= 200 ? 1 : 0;
+  const harvesterCount = _.filter(
+    Game.creeps,
+    (c) => c.memory.role === "harvester"
+  ).length;
+  const upgraderCount = _.filter(
+    Game.creeps,
+    (c) => c.memory.role === "upgrader"
+  ).length;
   return `${energyStatus}|${harvesterCount}|${upgraderCount}`;
 }
 
-// Fonction de récompense simple (à adapter librement)
+// Simple reward function
 function calculateReward(room, action) {
   let reward = -1;
 
   if (action.type === "SPAWN" && room.energyAvailable >= 200) reward += 5;
-  if (action.type === "WAIT"  && room.energyAvailable >= 200) reward -= 1;
+  if (action.type === "WAIT" && room.energyAvailable >= 200) reward -= 1;
 
   if (room.controller.progress > (Memory.lastProgress || 0)) {
-    reward += (room.controller.progress - (Memory.lastProgress || 0));
+    reward += room.controller.progress - (Memory.lastProgress || 0);
   }
   Memory.lastProgress = room.controller.progress;
 
   return reward;
 }
 
-  // Mémoire globale
+// Global memory
 if (Memory.epochTick === undefined) Memory.epochTick = 0;
 if (Memory.wantReset && roomExistsAfterReset()) {
   delete Memory.wantReset;
@@ -111,49 +107,44 @@ if (Memory.wantReset && roomExistsAfterReset()) {
   return;
 }
 
-// Stats pour le suivi de chaque « époque »
+// Stats to follow each epoch
 if (!Memory.evaluation) {
   Memory.evaluation = {
     startTick: Game.time,
     actionsTaken: 0,
     episodeStats: [],
-    history: []
+    history: [],
   };
 }
 
 function ensureEvaluation() {
   if (!Memory.evaluation) {
     Memory.evaluation = {
-      startTick:    Game.time,
+      startTick: Game.time,
       actionsTaken: 0,
       episodeStats: [],
-      history:      []
+      history: [],
     };
   }
 }
 
-// -----------------------------------------------------------------------------
-// Boucle principale Screeps
-// -----------------------------------------------------------------------------
+// Main loop
 module.exports.loop = function () {
   const room = Game.rooms[Object.keys(Game.rooms)[0]];
   if (!room) return;
-  
+
   if (Memory.wantReset) {
-    // Optionnel : hâter le wipe en supprimant tous les creeps vivants.
     for (const name in Game.creeps) {
       Game.creeps[name].suicide();
     }
     if (Game.time % 25 === 0)
-      console.log("[EPOCH] wantReset actif — en attente du wipe");
+      console.log("[EPOCH] wantReset true — waiting reset");
 
-    return;                       // ← on saute toute la suite du tick
+    return;
   }
 
   ensureEvaluation();
-  // ---------------------------------------------------------------------------
-  // Chargement éventuel de la Q-table depuis le segment mémoire
-  // ---------------------------------------------------------------------------
+  // Eventual loading of the Q-table from the memory segment
   if (!Memory.brainLoaded) {
     RawMemory.setActiveSegments([SEG_ID]);
     const seg = RawMemory.segments[SEG_ID];
@@ -161,43 +152,43 @@ module.exports.loop = function () {
       try {
         Memory.brain = JSON.parse(seg).brain;
         Memory.brainLoaded = true;
-        console.log(`[PERSIST] Q-table loaded |Q|=${Object.keys(Memory.brain.q).length}`);
+        console.log(
+          `[PERSIST] Q-table loaded |Q|=${Object.keys(Memory.brain.q).length}`
+        );
       } catch (e) {}
     }
     RawMemory.setActiveSegments([]);
   }
 
-  // ---------------------------------------------------------------------------
-  // Reset automatique lorsqu’on atteint RCL 2 (fin d’époque)
-  // ---------------------------------------------------------------------------
+  // Reset automatic when reaching RCL 2 (end of epoch)
   if (room.controller.level >= 2 && !Memory.wantReset) {
-    // Sauvegarde cerveau + métriques
+    // Save brain + metrics
     RawMemory.setActiveSegments([SEG_ID]);
     RawMemory.segments[SEG_ID] = JSON.stringify({ brain: Memory.brain });
 
     RawMemory.setActiveSegments([METRICS_SEG]);
     RawMemory.segments[METRICS_SEG] = JSON.stringify(Memory.evaluation);
 
-    const hist    = Memory.evaluation.history;
+    const hist = Memory.evaluation.history;
     const summary = {
-      startTick:        Memory.evaluation.startTick,
-      actionsTaken:     Memory.evaluation.actionsTaken,
-      historyCount:     hist.length,
-      episodeCount:     Memory.brain.stats.episodes,
-      avgReward:        Memory.brain.stats.avgReward,
-      controllerLevel:  room.controller.level,
-      firstEntry:       hist[0],
+      startTick: Memory.evaluation.startTick,
+      actionsTaken: Memory.evaluation.actionsTaken,
+      historyCount: hist.length,
+      episodeCount: Memory.brain.stats.episodes,
+      avgReward: Memory.brain.stats.avgReward,
+      controllerLevel: room.controller.level,
+      firstEntry: hist[0],
       lastEntry: {
-        tick:            Game.time,
+        tick: Game.time,
         controllerLevel: room.controller.level,
         controllerProgress: room.controller.progress,
-        harvester:         _.countBy(Game.creeps, c => c.memory.role).harvester || 0,
-        upgrader:          _.countBy(Game.creeps, c => c.memory.role).upgrader  || 0
-      }
+        harvester: _.countBy(Game.creeps, (c) => c.memory.role).harvester || 0,
+        upgrader: _.countBy(Game.creeps, (c) => c.memory.role).upgrader || 0,
+      },
     };
     console.log("[METRICS]", JSON.stringify(summary));
 
-    // Nettoyage puis marque qu’on souhaite un reset dès que possible
+    // Cleanup then mark wantReset asap
     RawMemory.segments[METRICS_SEG] = "";
     RawMemory.setActiveSegments([]);
     delete Memory.evaluation;
@@ -206,19 +197,15 @@ module.exports.loop = function () {
     return;
   }
 
-  // ---------------------------------------------------------------------------
-  // Choix d’action : greedy si EVAL, sinon ε-greedy
-  // ---------------------------------------------------------------------------
+  // Action selection: greedy if EVAL, otherwise ε-greedy
   const currentState = state(room);
-  const action       = brain.act(currentState, ACTIONS);
-    
+  const action = brain.act(currentState, ACTIONS);
+
   if (!EVAL) Memory.evaluation.actionsTaken++;
 
-  // ---------------------------------------------------------------------------
-  // Exécution de l’action choisie
-  // ---------------------------------------------------------------------------
+  // Execute the chosen action
   if (action.type === "SPAWN") {
-    const spawn = _.find(Game.spawns, s => !s.spawning);
+    const spawn = _.find(Game.spawns, (s) => !s.spawning);
     if (spawn && room.energyAvailable >= 200) {
       spawn.spawnCreep(
         action.body,
@@ -230,17 +217,16 @@ module.exports.loop = function () {
 
   const reward = calculateReward(room, action);
 
-  // ---------------------------------------------------------------------------
-  // Gestion des creeps + sanction si corps invalide
-  // ---------------------------------------------------------------------------
+  // Manage creeps + penalty if body is invalid
   for (const name in Game.creeps) {
     const creep = Game.creeps[name];
 
-    // Suicide si corps incomplet
-    if (!creep.getActiveBodyparts(WORK) ||
-        !creep.getActiveBodyparts(CARRY) ||
-        !creep.getActiveBodyparts(MOVE)) {
-
+    // Suicide if body is incomplete
+    if (
+      !creep.getActiveBodyparts(WORK) ||
+      !creep.getActiveBodyparts(CARRY) ||
+      !creep.getActiveBodyparts(MOVE)
+    ) {
       creep.suicide();
       if (!EVAL) brain.learn(currentState, action, -100, state(room), ACTIONS);
       continue;
@@ -248,30 +234,28 @@ module.exports.loop = function () {
     creepLogic.run(creep);
   }
 
-  // ---------------------------------------------------------------------------
-  // Enregistrement du pas + apprentissage par épisode
-  // ---------------------------------------------------------------------------
+  // Record the step + learning per episode
   const episodeComplete = brain.recordStep(currentState, action, reward);
 
   if (!EVAL && episodeComplete) {
     const stats = brain.learnEpisode(state(room));
     if (stats.episode % 1 === 0) {
       console.log(
-        `[QLEARN] Episode ${stats.episode} | AvgR: ${stats.avgReward.toFixed(2)} | ε: ${stats.epsilon.toFixed(3)}`
+        `[QLEARN] Episode ${stats.episode} | AvgR: ${stats.avgReward.toFixed(
+          2
+        )} | ε: ${stats.epsilon.toFixed(3)}`
       );
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Log et historique dans Memory (toutes les SAVE_EACH ticks)
-  // ---------------------------------------------------------------------------
+  // Log and history in Memory (every SAVE_EACH ticks)
   if (Memory.epochTick % SAVE_EACH === 0) {
     Memory.evaluation.history.push({
-      tick:              Game.time,
-      controllerLevel:   room.controller.level,
+      tick: Game.time,
+      controllerLevel: room.controller.level,
       controllerProgress: room.controller.progress,
-      harvester:         _.countBy(Game.creeps, c => c.memory.role).harvester || 0,
-      upgrader:          _.countBy(Game.creeps, c => c.memory.role).upgrader  || 0
+      harvester: _.countBy(Game.creeps, (c) => c.memory.role).harvester || 0,
+      upgrader: _.countBy(Game.creeps, (c) => c.memory.role).upgrader || 0,
     });
   }
   Memory.epochTick++;

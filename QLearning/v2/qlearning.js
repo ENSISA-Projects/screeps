@@ -19,16 +19,14 @@ const DEFAULT_CONFIG = {
   epsilonDecay:   0.995,
   episodeLength:  100,
   warmupEpisodes: 4,
-  frozen:         false               // ← flag interne (true = gelé)
+  frozen:         false
 };
 
-// Clef Q-table : état | type d’action | rôle | corps
+// Key Q-table : state | action type | role | body
 const key = (s, a) =>
   `${s}|${a.type}|${a.role || ""}|${a.body ? a.body.join("-") : ""}`;
 
-// -----------------------------------------------------------------------------
-// Initialisation de Memory.brain (si nécessaire)
-// -----------------------------------------------------------------------------
+// Init of Memory.brain
 if (!Memory.brain) {
   Memory.brain = {
     q: {},
@@ -38,31 +36,22 @@ if (!Memory.brain) {
   };
 }
 
-// -----------------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------------
+// Helper
 function isFrozen() { return !!Memory.brain.frozen; }
 
-// -----------------------------------------------------------------------------
-// Module exporté
-// -----------------------------------------------------------------------------
 module.exports = {
 
-  // ---------------------------------------------------------------------------
-  // Permet au code principal d’activer/désactiver le gel
-  // ---------------------------------------------------------------------------
+  // Enable/Disable freezing
   setFrozen(flag = true) { Memory.brain.frozen = !!flag; },
 
-  // ---------------------------------------------------------------------------
-  // Choix d’action (ε-greedy ou greedy si gelé)
-  // ---------------------------------------------------------------------------
+  // Action selection (ε-greedy or greedy if frozen)
   act(state, actions) {
     const B       = Memory.brain;
-    const explore = isFrozen() ? 0 : B.epsilon;   // ε = 0 si gelé
+    const explore = isFrozen() ? 0 : B.epsilon;   // ε = 0 if frozen
 
     if (Math.random() < explore) return _.sample(actions);
 
-    // Politique greedy : on renvoie l’action avec le meilleur Q
+    // Greedy policy: return action with highest Q
     let bestAction = actions[0];
     let bestQ      = -Infinity;
 
@@ -73,9 +62,7 @@ module.exports = {
     return bestAction;
   },
 
-  // ---------------------------------------------------------------------------
-  // Enregistrement d’un pas dans l’épisode courant
-  // ---------------------------------------------------------------------------
+  // Record a step in the current episode
   recordStep(state, action, reward) {
     const B = Memory.brain;
     if (!B.currentEpisode) this.resetEpisode();
@@ -86,17 +73,14 @@ module.exports = {
     return B.currentEpisode.steps.length >= B.episodeLength;
   },
 
-  // ---------------------------------------------------------------------------
-  // Apprentissage Monte-Carlo sur l’épisode complet
-  // ─ (retourne juste les stats si gelé, sans toucher à la Q-table)
-  // ---------------------------------------------------------------------------
+  // Monte-Carlo learning on the complete episode
   learnEpisode(finalState) {
-    if (isFrozen()) return this.getStats();   // aucun apprentissage
+    if (isFrozen()) return this.getStats();   // no learning
 
     const B       = Memory.brain;
     const episode = B.currentEpisode.steps;
 
-    // Calcul des retours (G) en remontant la timeline
+    // Calculate returns (G) by traversing the timeline
     let G = 0;
     const returns = [];
     for (let t = episode.length - 1; t >= 0; t--) {
@@ -104,7 +88,7 @@ module.exports = {
       returns.unshift(G);
     }
 
-    // Mise à jour de la Q-table
+    // Update the Q-table
     for (let t = 0; t < episode.length; t++) {
       const { state, action } = episode[t];
       const k    = key(state, action);
@@ -112,13 +96,13 @@ module.exports = {
       B.q[k]     = oldQ + B.alpha * (returns[t] - oldQ);
     }
 
-    // Stats globales
+    // Global stats
     B.stats.episodes++;
     B.stats.recentRewards.push(B.currentEpisode.totalReward);
     if (B.stats.recentRewards.length > 20) B.stats.recentRewards.shift();
     B.stats.avgReward = _.sum(B.stats.recentRewards) / B.stats.recentRewards.length;
 
-    // Décroissance d’ε après la période de chauffe
+    // Epsilon decay after warmup period
     if (B.stats.episodes > B.warmupEpisodes) {
       B.epsilon = Math.max(B.minEpsilon, B.epsilon * B.epsilonDecay);
     }
@@ -132,30 +116,24 @@ module.exports = {
     };
   },
 
-  // ---------------------------------------------------------------------------
-  // Q-Learning one-step — ignoré si gelé
-  // ---------------------------------------------------------------------------
+  // Q-Learning one-step
   learn(s, a, r, s2, actions) {
-    if (isFrozen()) return;    // pas d’apprentissage
+    if (isFrozen()) return;    // no learning
 
     const B   = Memory.brain;
     const qs  = B.q[key(s, a)] || 0;
     const qsp = _.max(actions.map(x => B.q[key(s2, x)] || 0));
 
     B.q[key(s, a)] = (1 - B.alpha) * qs + B.alpha * (r + B.gamma * qsp);
-    B.epsilon = Math.max(0.05, B.epsilon * 0.9995);   // ε decay léger
+    B.epsilon = Math.max(0.05, B.epsilon * 0.9995);   // slight ε decay
   },
 
-  // ---------------------------------------------------------------------------
-  // Reset de l’épisode en cours
-  // ---------------------------------------------------------------------------
+  // Reset the current episode
   resetEpisode() {
     Memory.brain.currentEpisode = { steps: [], totalReward: 0 };
   },
 
-  // ---------------------------------------------------------------------------
-  // Consultation rapide des stats
-  // ---------------------------------------------------------------------------
+  // Quick stats consultation
   getStats() {
     const B = Memory.brain;
     return {

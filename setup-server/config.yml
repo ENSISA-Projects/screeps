@@ -11,7 +11,7 @@ mods:
 
 bots:
   simplebot: "screepsbot-zeswarm"
-  overmind: "./bots/overmind/dist"  # Chemin Linux, pas Windows
+  overmind: "./bots/overmind/dist"  # Linux path, not Windows
 extraPackages:
   morgan: "*"
 localMods: ./mods

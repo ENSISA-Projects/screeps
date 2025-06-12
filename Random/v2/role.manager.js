@@ -57,7 +57,7 @@ function runCreep(creep) {
 
 // Main game loop — executed every tick
 module.exports.loop = function () {
-  // SPAWN aléatoire 33 % des ticks
+  // Random SPAWN 33 % of ticks
   if (_.random(0, 2) === 0) {
     const spawn = _.find(Game.spawns, (s) => !s.spawning);
     if (spawn && spawn.room.energyAvailable >= 200) {

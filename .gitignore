@@ -1,9 +1,6 @@
 .DS_Store
 .sync
-/Genetic-2
 /venv
-/tb
-/tb_screeps
 /deep/__pycache__
 deep/.env
 /deep/dqn_spawn

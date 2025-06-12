@@ -378,7 +378,7 @@ function learnEpisode(creep, actions) {
   if (stats.recentRewards.length > 20) stats.recentRewards.shift();
   
   // Ajuster epsilon en fonction des performances récentes
-  if (stats.episodes % 100 === 0 && stats.recentRewards.length >= 5) {
+  if (stats.episodes % 10 === 0 && stats.recentRewards.length >= 5) {
     const avgReward = _.sum(stats.recentRewards) / stats.recentRewards.length;
     
     // Si récompenses stables ou décroissantes, augmenter l'exploration

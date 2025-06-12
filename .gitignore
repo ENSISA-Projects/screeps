@@ -8,3 +8,9 @@ deep/.env
 /deep/tb
 deep/dqn_spawn.zip
 /deep/tb_screeps
+Deep/v1/.env
+/Deep/v1/__pycache__
+Deep/v1/dqn_spawn.zip
+/Deep/v1/dqn_spawn
+Deep/v1/logs/monitor.csv
+/Deep/v1/tb_screeps

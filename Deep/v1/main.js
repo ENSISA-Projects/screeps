@@ -1,12 +1,12 @@
 // main.js
 const creepAI = require("creep");
 module.exports.loop = function () {
-  // Suicide si corps incomplet (WORK/CARRY/MOVE manquant)
+  
   const room = Object.values(Game.rooms).find(
     (r) => r.controller && r.controller.my
   );
   if (room) {
-    Memory.dqn_ctrl_level = room.controller.level; // ← optionnel
+    Memory.dqn_ctrl_level = room.controller.level;
   }
 
   const alive = _.filter(Game.creeps, (c) => !c.spawning);

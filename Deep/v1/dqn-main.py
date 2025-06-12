@@ -15,7 +15,7 @@ try:
     if VPS_HOST and SCREEPS_HOST:
         HOST = f"{VPS_HOST}:{SCREEPS_HOST}"
     else:
-        raise ValueError("❌ VPS_HOST ou SCREEPS_HOST manquant dans .env")
+        raise ValueError("❌ VPS_HOST or SCREEPS_HOST missing in .env")
 
     USERNAME = os.getenv("USERNAME")
     PASSWORD = os.getenv("PASSWORD")
@@ -53,7 +53,7 @@ model = DQN(
     gamma=0.99,
 )
 
-# Callback(s) + entraînement
+# Callback(s) + training
 callback = ScreepsMetricsCallback()
 
 model.learn(total_timesteps=1000, progress_bar=True, callback=callback)

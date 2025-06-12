@@ -12,6 +12,6 @@ class ScreepsMetricsCallback(BaseCallback):
                 self.logger.record("screeps/ticks_to_RCL2", info["ticks_until_lvl2"])
                 wrote = True
         if wrote:
-            # flush immédiat dans l’event-file → visible dans TensorBoard
+            # flush in event-file visible in TensorBoard
             self.logger.dump(self.num_timesteps)
         return True

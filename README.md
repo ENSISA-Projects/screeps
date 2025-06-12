@@ -76,9 +76,10 @@ v1 -> Basic implementation of the algorithm (perfect to optimize sequences of ac
 ### Deep
 
 LVL 1-2  
-Only one version available as training further takes too much time, you can read the results of training with tensorboard.  
+v1 -> One version available as training further takes too much time, you can read the results of training with tensorboard.  
 Similar to Qlearning way of implementation using API calls and MLP policy of DQN (stable baselines3) on vectorized environment gym. Correctly auto reset room W7N7 and continue to iterate.  
 Saves datas like reward in logs and for each iteration datas in tb_screeps.  
 Saves model in dqn_spawn.  
 
-LVL 1-3?
+LVL 1-3
+v2 -> Not implemented

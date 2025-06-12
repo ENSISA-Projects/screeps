@@ -13,10 +13,10 @@ VPS_USER = os.getenv("VPS_USER", "debian")
 VPS_PASSWORD = os.getenv("VPS_PASSWORD")
 
 if VPS_HOST is None or VPS_PASSWORD is None:
-    sys.exit("❌ VPS_HOST ou VPS_PASSWORD manquant dans .env")
+    sys.exit("❌ VPS_HOST or VPS_PASSWORD missing in .env")
 
 
-# Commandes Screeps pour reset la room W7N7
+# Screeps commands to reset the room W7N7
 SCREEPS_COMMANDS = [
     "storage.db['rooms.objects'].removeWhere({room: 'W7N7', type: 'creep'})",
     "storage.db['rooms.objects'].update({room: 'W7N7', type: 'controller'}, {$set: {level: 1, progress: 0, progressTotal: 200}, $unset: {downgradeTime: 1, upgradeBlocked: 1, safeMode: 1, safeModeAvailable: 1, safeModeCooldown: 1}})",
@@ -27,9 +27,9 @@ SCREEPS_COMMANDS = [
 
 
 def connect_ssh():
-    """Établit la connexion SSH au VPS."""
+    """Establishes the SSH connection to the VPS."""
     try:
-        print(f"Connexion à {VPS_HOST}:{VPS_PORT}…")
+        print(f"Connecting to {VPS_HOST}:{VPS_PORT}…")
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(
@@ -38,102 +38,102 @@ def connect_ssh():
             username=VPS_USER,
             password=VPS_PASSWORD,
         )
-        print("✅ Connexion SSH établie")
+        print("✅ SSH connection established")
         return client
     except Exception as e:
-        sys.exit(f"❌ Erreur de connexion SSH : {e}")
+        sys.exit(f"❌ SSH connection error: {e}")
 
 
 def execute_command(ssh_client, command, wait_time=2):
-    """Exécute une commande et affiche le résultat"""
+    """Executes a command and displays the result"""
     try:
-        print(f"Exécution: {command}")
+        print(f"Executing: {command}")
         stdin, stdout, stderr = ssh_client.exec_command(command)
 
-        # Attendre que la commande se termine
+        # Wait for the command to complete
         time.sleep(wait_time)
 
-        # Lire les sorties
+        # Read the outputs
         output = stdout.read().decode("utf-8").strip()
         error = stderr.read().decode("utf-8").strip()
 
         if output:
-            print(f"✅ Sortie: {output}")
+            print(f"✅ Output: {output}")
         if error:
-            print(f"⚠️  Erreur: {error}")
+            print(f"⚠️ Error: {error}")
 
         return output, error
 
     except Exception as e:
-        print(f"❌ Erreur lors de l'exécution: {e}")
+        print(f"❌ Error during execution: {e}")
         return None, str(e)
 
 
 def main():
-    print("🚀 Démarrage du script de reset de la room W7N7")
+    print("🚀 Starting the reset script for room W7N7")
     print("=" * 50)
 
-    # Connexion SSH
+    # SSH connection
     ssh_client = connect_ssh()
 
     try:
-        # Naviguer vers le dossier Screepfinal
-        print("\n📁 Navigation vers le dossier Screepfinal...")
+        # Navigate to the Screepfinal folder
+        print("\n📁 Navigating to the Screepfinal folder...")
         execute_command(ssh_client, "cd Screepfinal && pwd")
 
-        # Lancer le CLI Screeps avec Docker Compose
-        print("\n🐳 Lancement du CLI Screeps...")
+        # Start the Screeps CLI with Docker Compose
+        print("\n🐳 Starting the Screeps CLI...")
 
-        # Créer une session interactive pour le CLI
+        # Create an interactive session for the CLI
         channel = ssh_client.invoke_shell()
 
-        # Envoyer les commandes
+        # Send commands to the channel
         channel.send("cd Screepfinal\n")
         time.sleep(1)
 
         channel.send("sudo docker compose exec screeps screeps-launcher cli\n")
-        time.sleep(3)  # Attendre que le CLI se lance
+        time.sleep(3)  # Wait for the CLI to start
 
-        print("\n🔧 Exécution des commandes de reset...")
+        print("\n🔧 Executing reset commands...")
 
-        # Exécuter chaque commande Screeps
+        # Execute each Screeps command
         for i, command in enumerate(SCREEPS_COMMANDS, 1):
             print(f"\n[{i}/{len(SCREEPS_COMMANDS)}] {command}")
 
-            # Envoyer la commande
+            # Send the command
             channel.send(f"{command}\n")
             channel.send("\n")
-            time.sleep(2)  # Attendre l'exécution
+            time.sleep(2)  # Wait for execution
 
-            # Lire la réponse
+            # Read the response
             if channel.recv_ready():
                 response = channel.recv(4096).decode("utf-8")
-                print(f"Réponse: {response.strip()}")
+                print(f"Response: {response.strip()}")
 
-        # Quitter le CLI
-        print("\n🚪 Fermeture du CLI...")
+        # Quit the CLI
+        print("\n🚪 Quitting the CLI...")
         channel.send("exit\n")
         time.sleep(1)
 
         channel.close()
 
-        print("\n✅ Reset de la room W7N7 terminé avec succès!")
+        print("\n✅ Reset of room W7N7 completed successfully!")
         print("=" * 50)
-        print("Résumé des actions effectuées:")
-        print("- Suppression de tous les creeps")
-        print("- Reset du contrôleur de room")
-        print("- Configuration du spawner à 300 d'énergie")
-        print("- Nettoyage des structures non-permanentes")
-        print("- Suppression des sites de construction")
-        print("- Nettoyage des intents de la room")
+        print("Summary of actions taken:")
+        print("- Removed all creeps")
+        print("- Reset room controller")
+        print("- Configured spawner to 300 energy")
+        print("- Cleaned up non-permanent structures")
+        print("- Removed construction sites")
+        print("- Cleaned up room intents")
 
     except Exception as e:
-        print(f"❌ Erreur durant l'exécution: {e}")
+        print(f"❌ Error during execution: {e}")
 
     finally:
-        # Fermer la connexion SSH
+        # Close the SSH connection
         ssh_client.close()
-        print("\n🔒 Connexion SSH fermée")
+        print("\n🔒 SSH connection closed")
 
 
 if __name__ == "__main__":

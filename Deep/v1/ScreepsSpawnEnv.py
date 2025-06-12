@@ -12,41 +12,38 @@ from gymnasium import spaces
 import numpy as np
 from screepsapi import API
 
-# ──────────────────────────────────────────────
 #  ACTION & STATE HELPERS
-# ──────────────────────────────────────────────
 PARTS = ["WORK", "CARRY", "MOVE"]
 ROLES = ["harvester", "upgrader"]
 DEBUG_RCL = True
 
 
-# ── Helper global ───────────────────────────
+# Helper functions
 def js_iife(body: str) -> str:
-    """Emballe le code JS dans une IIFE silencieuse."""
+    """Wraps JS code in a silent IIFE."""
     return f"(function(){{{body}}})();0"
 
 
-# ── helpers ───────────────────────────────────────────────────────────
 def _to_list(v):
-    # --- déballer la valeur "data" si présent ---
+    # unpack the "data" value if present
     if isinstance(v, Mapping) and "data" in v:
-        v = v["data"]  # ← idem ici
+        v = v["data"]
 
-    # 1) décodage récursif des chaînes JSON
+    # recursive decoding of JSON strings
     while isinstance(v, str):
         try:
             v = json.loads(v)
         except json.JSONDecodeError:
             break
 
-    # 2) si c’est encore un Mapping style tableau JS
+    # if still a Mapping style JS array
     if isinstance(v, Mapping):
         try:
             v = [v[str(i)] for i in sorted(map(int, v.keys()))]
         except Exception:
             v = list(v.values())
 
-    # 3) fallback sécurité
+    # security fallback
     if not isinstance(v, list) or len(v) != 5:
         v = [0, 0, 0, 1, 0]
 
@@ -71,23 +68,21 @@ def generate_exact_body_combos(parts: List[str], max_parts: int) -> List[List[st
 
 ALL_BODIES = generate_exact_body_combos(PARTS, 3)
 
-# Liste des actions exactement comme dans le code JS
+# List of actions
 ACTIONS: List[Dict[str, Any]] = [
     {"type": "SPAWN", "role": role, "body": body}
     for body in ALL_BODIES
     for role in ROLES
 ]
-ACTIONS.append({"type": "WAIT"})  # index final
+ACTIONS.append({"type": "WAIT"})  # final action
 
 
-# ──────────────────────────────────────────────
-#  ENVIRONNEMENT DQN ALIGNÉ SUR Q‑LEARNING JS
-# ──────────────────────────────────────────────
+#  ENVIRONMENT DQN ALIGNED WITH Q‑LEARNING
 class ScreepsSpawnEnv(gym.Env):
-    """Agent de niveau salle qui choisit de "SPAWN" ou "WAIT".
+    """Room-level agent that chooses to "SPAWN" or "WAIT".
 
     Observation (5 dim) = [energyFlag, harvesterWork, upgraderWork, ctrlLvl, ctrlProg/100]
-    Action             = Discret(len(ACTIONS))
+    Action             = Discrete(len(ACTIONS))
     """
 
     metadata = {"render_modes": ["human"]}
@@ -106,38 +101,38 @@ class ScreepsSpawnEnv(gym.Env):
         self.shard = shard
         self.render_mode = render_mode
 
-        # --- espace des actions/states ---
+        # espace of actions/states
         self.action_space = spaces.Discrete(len(ACTIONS))
         low = np.array([0, 0, 0, 1, 0], dtype=np.float32)  # min bounds
         high = np.array([1, 50, 50, 8, 500], dtype=np.float32)  # RCL8 et prog simplifié
         self.observation_space = spaces.Box(low, high, dtype=np.float32)
 
-        # vars internes
+        # internal state
         self._prev_state: np.ndarray | None = None
 
-        self._tick = 0  # avance d’un cran à chaque step
-        self._first_spawn_tick = None  # tick où ≥1 creep est en jeu
-        self._creeps_seen = 0  # total de creeps vivants au tick courant
+        self._tick = 0  # advances by one step at each tick
+        self._first_spawn_tick = None  # tick where ≥1 creep is in play
+        self._creeps_seen = 0  # total number of living creeps at the current tick
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
 
-        # reset complet de la room
+        # complete reset of the room
         subprocess.run([sys.executable, "reset.py"], check=True)
         self._wait_tick(3)
 
-        # 🔄 remise à zéro des compteurs
+        # reset of counters
         self._tick = 0
         self._first_spawn_tick = None
         self._creeps_seen = 0
 
-        # état initial
+        # initial state
 
-        self._wait_tick()  # 1) le serveur termine le tick N
+        self._wait_tick()  # 1) the server finishes tick N
 
-        obs = self._get_obs()  # 2) LIRE dqn_state/dqn_creep_count du tick N
+        obs = self._get_obs()  # 2) READ dqn_state/dqn_creep_count from tick N
 
-        self._inject_state_snippet()  # 3) PROGRAMMER la mesure pour le tick N+1
+        self._inject_state_snippet()  # 3) PROGRAM the measurement for tick N+1
 
         self._prev_state = obs.copy()
         return obs, {}
@@ -145,7 +140,7 @@ class ScreepsSpawnEnv(gym.Env):
     def step(self, action: int):
         act_obj = ACTIONS[action]
 
-        # ① SPAWN éventuel
+        # SPAWN
         if act_obj["type"] == "SPAWN":
             role = act_obj["role"]
             parts = ",".join(act_obj["body"])
@@ -167,10 +162,10 @@ class ScreepsSpawnEnv(gym.Env):
         self._inject_state_snippet()
         time.sleep(0.01)
 
-        # ④ lire l’état MAJ
+        # READ updated state
         obs = self._get_obs()
 
-        # ⑤ compteurs & reward
+        # counters & reward
         self._tick += 1
         creep_cnt = self._get_creep_count()
         if self._first_spawn_tick is None and creep_cnt > 0:
@@ -183,8 +178,8 @@ class ScreepsSpawnEnv(gym.Env):
         reward = self._compute_reward(self._prev_state, obs, act_obj)
         self._prev_state = obs.copy()
 
-        terminated = bool(obs[3] >= 2)  # RCL 2 atteint
-        truncated = False  # TimeLimit se charge du reste
+        terminated = bool(obs[3] >= 2)  # RCL 2
+        truncated = False
 
         info = {}
         if terminated:
@@ -193,8 +188,8 @@ class ScreepsSpawnEnv(gym.Env):
 
         return obs, reward, terminated, truncated, info
 
-    # ── Rendu simple ───────────────────────
-    def render(self) -> None:  # affichage console facultatif
+    # Simple rendering
+    def render(self) -> None:  # optional console display
         if self.render_mode != "human":
             return
         s = self._get_obs()
@@ -202,7 +197,7 @@ class ScreepsSpawnEnv(gym.Env):
             f"E:{int(s[0])} | H:{int(s[1])} | U:{int(s[2])} | RCL:{int(s[3])} | prog:{int(s[4])}"
         )
 
-    # ── Helpers JS/API ──────────────────────
+    # Helpers JS/API
 
     def _console(self, code: str) -> None:
         self.api.console(code, shard=self.shard)
@@ -245,34 +240,34 @@ class ScreepsSpawnEnv(gym.Env):
         # Base penalty
         r = -0.1
 
-        # Pénalité spawn sans MOVE
+        # Penality for spawn without MOVE
         if action_obj["type"] == "SPAWN" and "MOVE" not in action_obj["body"]:
             r -= 1.0
 
-        # Avancement contrôleur
+        # Controller progress
         progress_delta = curr[4] - prev[4]
         if progress_delta > 0:
             r += float(progress_delta)
 
-        # Équilibre harvesters / upgraders via work parts comme proxy
+        # Balance harvesters / upgraders via work parts as proxy
         h, u = curr[1], curr[2]
         total = h + u
         if total > 0:
             ratio = h / total
             r -= (abs(ratio - 0.6) ** 2) * 5.0
 
-        # Bonus RCL2 atteint
+        # Bonus RCL2
         if curr[3] >= 2:
             r += 20.0
 
         return r
 
-    # ── nombre de creeps ──────────────────────────────────────────────────
+    # Number of creeps
     def _get_creep_count(self) -> int:
         raw = self.api.memory("dqn_creep_count", shard=self.shard)
 
         if isinstance(raw, Mapping):  # OrderedDict {'ok':1,'data':0}
-            raw = raw.get("data", 0)  # ← on prend la bonne clé
+            raw = raw.get("data", 0)
 
         while isinstance(raw, str):
             try:
